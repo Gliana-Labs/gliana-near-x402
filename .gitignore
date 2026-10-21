@@ -2,3 +2,14 @@ node_modules/
 dist/
 .env
 *.key.json
+.env.*
+!.env.example
+# NEAR key material. The demo writes keys to ~/.near-gliana (OUTSIDE the repo)
+# on purpose — this covers the day someone writes one inside it instead. This
+# repo is going public, so a near-miss here is a published private key.
+*.pem
+*.key
+near-credentials/
+.near-credentials/
+*credentials*.json
+*mnemonic*
