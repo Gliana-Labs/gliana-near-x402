@@ -35,7 +35,12 @@ export interface Rsv {
 }
 
 /** Signs a 32-byte digest. In production this is v1.signer via chainsig.js. */
-export type HashSigner = (digest: Hex) => Promise<Rsv>;
+/**
+ * Signs a payment digest. `auth` is the authorization the digest was built from:
+ * a signer that does not sign raw hashes (the agent-allowance contract, which
+ * rebuilds the digest itself so it can enforce a budget) needs the terms, not the hash.
+ */
+export type HashSigner = (digest: Hex, auth: Authorization) => Promise<Rsv>;
 
 /** One option out of a 402 challenge, as the gateway publishes it. */
 export interface Accept {
@@ -258,7 +263,7 @@ export async function payWithNear(opts: {
 
   const auth = buildAuthorization(accept, opts.from, opts.now);
   const digest = authorizationDigest(accept, auth);
-  const signature = toSignature(await opts.sign(digest));
+  const signature = toSignature(await opts.sign(digest, auth));
 
   const paid = await doFetch(opts.url, {
     ...init,

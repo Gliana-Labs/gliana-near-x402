@@ -1,0 +1,29 @@
+Script started on 2026-10-29 02:40:20+07:00 [COMMAND="npm run demo" TERM="xterm-256color" TTY="/dev/pts/2" COLUMNS="117" LINES="34"]
+
+> gliana-near-x402@1.0.0 demo
+> tsx src/demo.ts
+
+NEAR account : cocoanutx.near  (mainnet)
+Base address : 0xf46587a7eF3CBd1467686cA8Aa05Bc51a21E670c   <- derived offline, no key exists for it
+Buying       : https://api.glianalabs.com/x402/tools/token-price
+
+  Asking NEAR's MPC network to sign (this takes ~15s; it is a threshold signature, not a local key)…
+
+PAID 2000 microUSD on base
+digest 0xf4e211d2db9964e979d0bcbba653763bfe5dcdaf0333072fe160e2d6c1396427
+
+{
+  "tool": "tools/token-price",
+  "costMicroUsd": 2000,
+  "vs": "USD",
+  "prices": {
+    "SOL": 102.185,
+    "NEAR": 4.70645
+  },
+  "sources": {
+    "SOL": "coinbase",
+    "NEAR": "coinbase"
+  }
+}
+⠙[1G[0K
+Script done on 2026-10-29 02:40:38+07:00 [COMMAND_EXIT_CODE="0"]

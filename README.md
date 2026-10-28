@@ -1,6 +1,6 @@
 # Pay for AI with a NEAR account — no EVM private key anywhere
 
-**NEAR HACKATHON 2026 · track: Agent Economy (`agents`)**
+**NEAR HACKATHON 2026 · tracks: Agent Economy (`agents`), AI Security & Defense (`security`)**
 
 An AI agent that holds a NEAR account buys paid HTTP APIs on Base — here, AI
 inference on [GlianaAI](https://ai.glianalabs.com) — over the x402 payment
@@ -76,6 +76,65 @@ Needs Node.js 20+. Steps 1-3 need no account, no key and no money.
    it outside the repo. See: `Asking NEAR's MPC network to sign (this takes
    ~15s…)`, then `PAID 2000 microUSD on eip155:8453` and the token prices as JSON.
 
+## The safety layer: an allowance enforced on NEAR
+
+Holding no Base key is half the story. The agent still holds a NEAR key, and a
+leaked NEAR key could sign anything. So the agent's key does not sign payments
+at all: it can only **ask** a contract.
+
+`contract/` is `agent-allowance`, a NEAR contract that **holds the agent's Base
+address** — derived from the contract's own account id, so only the contract
+can get a payment from it signed. The agent sends the payment's terms; the
+contract rebuilds the EIP-3009 digest itself (the agent cannot slip a different
+payment past it), checks the owner's policy, and only then calls `v1.signer`:
+
+| Check | Default |
+| --- | --- |
+| Payee is on the owner's list | GlianaAI's Base `payTo` |
+| Amount per payment | at most $0.01 |
+| Total per day | at most $0.05 (given back if signing fails) |
+| Authorization lifetime | at most 1 hour, so no long-lived signature exists |
+
+A leaked agent key is worth at most one day's budget, paid only to sellers the
+owner chose. The owner can pause it, swap the agent account (`set_agent`),
+change limits and payees, and move funds without the limits (`owner_pay`).
+
+**Verified on live testnet** (`allowance.gliana-x402.testnet`, signer
+`v1.signer-prod.testnet`): a $0.002 payment to the listed payee was approved and
+signed in 19 s, and the signature recovers to exactly the contract's Base
+address `0xe32847B59D97cF36915D92064B99543743A88493`; the same call to an
+unlisted payee was refused on chain with `payee is not on the owner's list`.
+
+Try it — do X, see Y:
+
+5. **Run the contract's tests** (Rust 1.95 is pinned in `contract/rust-toolchain.toml`).
+   ```bash
+   npm run contract:test
+   ```
+   See: `10 passed` — including the contract's digest matching viem's byte for byte
+   (USDC's real Base domain separator `0x02fa7265…834f`), the payee list, both caps,
+   the day roll-over, the refund on a failed signature, and pausing.
+
+6. **Deploy your own allowance on testnet** (free; needs a testnet account key file).
+   ```bash
+   npm run contract:build
+   NEAR_KEY_FILE=~/.near-gliana/you.testnet.json NEAR_NETWORK=testnet npm run allowance:deploy
+   ```
+   See: `allowance.<you>` and `agent.<you>` created (keys saved owner-only in
+   `~/.near-gliana/`), the contract initialised, and its policy and Base address printed.
+
+7. **Pay through it.**
+   ```bash
+   AGENT_KEY_FILE=~/.near-gliana/agent.<you>.json ALLOWANCE=allowance.<you> NEAR_NETWORK=testnet npm run allowance:pay
+   ```
+   See: the contract approve and the MPC sign (~15-20 s). With USDC at the printed
+   Base address the payment settles; a payee off the list is refused with the
+   contract's own reason.
+
+For production, delete the contract account's full-access key after deploying
+(`near account delete-keys`), so nobody — not even the owner's machine — can
+redeploy it past the policy; the owner keeps control through `set_*` and `owner_pay`.
+
 ## What's here
 
 ```
@@ -83,6 +142,10 @@ src/x402-payer.ts        challenge -> EIP-712 digest -> X-PAYMENT header. Pure; 
 src/signer.ts            the only part that costs gas: v1.signer via @near-js.
 src/demo.ts              the five steps, end to end.
 src/address.ts           print the Base address a NEAR account controls.
+src/policy.ts            pay through the allowance contract (checks its digest matches first).
+src/deploy-allowance.ts  create allowance.<you> + agent.<you>, deploy, set the policy.
+src/policy-demo.ts       the agent pays through the allowance.
+contract/                agent-allowance: the NEAR contract (Rust, near-sdk), with its tests.
 src/x402-payer.test.ts   derivation vectors, the real MPC fixture, payment construction.
 skills/pay-with-near/    an agent skill in the near/agent-skills format.
 demo/                    the recording script and the demo post.
@@ -92,6 +155,7 @@ demo/                    the recording script and the demo post.
 
 - **Chain Signatures** (`v1.signer` on mainnet, `v1.signer-prod.testnet`):
   signs the EIP-3009 digest; the Base address is derived from the MPC root key.
+- **A NEAR smart contract** (`contract/`, Rust near-sdk) that owns the Base address and enforces the budget, calling `v1.signer` cross-contract.
 - **`@near-js/*`** for the signing transaction. Address derivation is
   implemented with `@noble` alone and matches `chainsig.js` on its vectors.
 

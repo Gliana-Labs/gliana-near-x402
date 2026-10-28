@@ -16,3 +16,6 @@ near-credentials/
 
 # The README example key file name.
 key.json
+
+# Rust build output
+contract/target/

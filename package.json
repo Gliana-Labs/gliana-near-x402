@@ -1,14 +1,18 @@
 {
   "name": "gliana-near-x402",
   "version": "1.0.0",
-  "description": "Pay for AI inference with a NEAR account, using Chain Signatures — no EVM private key anywhere.",
+  "description": "Pay for AI inference with a NEAR account, using Chain Signatures \u2014 no EVM private key anywhere.",
   "type": "module",
   "license": "MIT",
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
     "demo": "tsx src/demo.ts",
-    "address": "tsx src/address.ts"
+    "address": "tsx src/address.ts",
+    "contract:build": "cd contract && cargo near build non-reproducible-wasm",
+    "contract:test": "cd contract && cargo test",
+    "allowance:deploy": "tsx src/deploy-allowance.ts",
+    "allowance:pay": "tsx src/policy-demo.ts"
   },
   "dependencies": {
     "@near-js/accounts": "^2.5.1",
