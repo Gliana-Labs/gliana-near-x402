@@ -59,7 +59,7 @@ a Solana-only challenge with a reason instead of signing the wrong thing.
 
 ## What is on the other end
 
-GlianaAI (`api.glianalabs.com`) sells 128 AI models and 60+ utility tools
+GlianaAI (`api.glianalabs.com`) sells 100+ AI models and 60+ utility tools
 per call, with no account and no API key — a 402 is the only gate. Prices
 start at $0.002. Full catalogue at `/v1/models` and `/v1/tools`; every paid
 endpoint self-describes in `/openapi.json`.

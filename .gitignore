@@ -13,3 +13,6 @@ near-credentials/
 .near-credentials/
 *credentials*.json
 *mnemonic*
+
+# The README example key file name.
+key.json
