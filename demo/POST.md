@@ -7,7 +7,7 @@ screenshots, and the link goes in the submission form.
 
 ## Draft
 
-> Give an AI agent a budget, not a key.
+> Saku: give an AI agent a budget, not a key.
 >
 > Its Base wallet belongs to a NEAR contract. The agent can only ask; the
 > contract signs only to approved sellers, $0.01 a payment, $0.05 a day.
