@@ -7,7 +7,8 @@
  *
  *   AGENT_KEY_FILE=~/.near-gliana/agent.you.near.json ALLOWANCE=allowance.you.near npm run demo:allowance
  *
- * REFUEL_USDC (default 0.1) sets the refuel; SKIP_REFUEL=1 skips it (testnet has no NEAR Intents).
+ * REFUEL_USDC (default 0.1) sets the refuel; SKIP_REFUEL=1 skips it (testnet has no NEAR Intents);
+ * SKIP_PAY=1 skips the paid call, so the run costs nothing (the refusal sends no transaction).
  */
 import { readFileSync } from 'node:fs';
 import { Account } from '@near-js/accounts';
@@ -55,6 +56,7 @@ if (process.env.SKIP_REFUEL !== '1') {
   await pause(1500);
 }
 
+if (process.env.SKIP_PAY !== '1') {
 console.log('');
 console.log('[2] PAY     the agent buys live token prices from GlianaAI over x402');
 const paid = await payWithNear({
@@ -71,6 +73,7 @@ const prices = (paid.body as { output?: unknown; prices?: unknown })?.output ?? 
 console.log(`  PAID ${usd(paid.chargedMicroUsd ?? 0)} within the allowance`);
 console.log(`  ${JSON.stringify(prices).slice(0, 160)}`);
 await pause(1500);
+}
 
 console.log('');
 console.log('[3] ATTACK  a prompt-injected agent tries to send $5.00 to 0x000…dEaD');
@@ -84,8 +87,8 @@ try {
   process.exit(1);
 } catch (err) {
   const why = /Smart contract panicked: ([^"\n]+)/.exec(String((err as Error)?.message ?? err))?.[1] ?? String(err).slice(0, 200);
-  console.log(`  REFUSED on chain by ${ALLOWANCE}: ${why}`);
-  console.log('  Nothing was signed. A stolen agent key is worth one day\'s budget, to the owner\'s payees only.');
+  console.log(`  REFUSED by ${ALLOWANCE}: ${why}`);
+  console.log('  Refused by the contract\'s own check before any transaction: nothing sent, nothing signed.');
 }
 const after = (await provider.callFunction(ALLOWANCE, 'get_policy', {})) as { spent_today: string; daily_limit: string };
 console.log('');

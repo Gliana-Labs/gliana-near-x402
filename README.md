@@ -122,7 +122,11 @@ Base address `0x1eC5840530f6730507162035E4924c49CCF9679d`), in one recorded run
 `check` — the client asks it before `pay`, so a refused payment never becomes a
 transaction. In the run above the attack was refused by a failed `pay` in 11.6 s;
 with `check` (deployed to the same contract after that run) the same refusal takes
-**0.17 s on mainnet** and sends nothing. `pay` still enforces every rule on chain.
+**0.17 s on mainnet** and sends nothing. A second recorded run after the upgrade
+(`demo/allowance2-session.log`): the paid call took 9.6 s end to end (Base
+[`0x59930812…72c3`](https://basescan.org/tx/0x599308125359a2b3d269a0c0e0811547fd0b1023de16c8c08c57a425805c72c3)),
+the attack was refused 0.1 s after it was asked, and the whole run took 13.4 s
+against 135 s before. `pay` still enforces every rule on chain.
 An allowed payment still waits ~15 s, for the MPC signature itself. All RPC goes
 through FastNEAR: the public `rpc.*.near.org` endpoints measured 3.1-3.7 s a call.
 
