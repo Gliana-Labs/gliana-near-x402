@@ -135,6 +135,27 @@ For production, delete the contract account's full-access key after deploying
 (`near account delete-keys`), so nobody — not even the owner's machine — can
 redeploy it past the policy; the owner keeps control through `set_*` and `owner_pay`.
 
+## Refuel: NEAR in, USDC on Base out (NEAR Intents)
+
+An agent that holds only NEAR keeps paying: `refuel` asks the NEAR Intents
+1Click API for *exactly* N USDC delivered on Base (`EXACT_OUTPUT`), wraps just the
+NEAR the quote needs, sends it to the quote's one-time deposit address, and tracks
+it until the USDC lands. The recipient is not a choice: it is the Base address the
+payer pays from — the allowance contract's when one is used — so this code can only
+move the agent's NEAR into the address its owner controls. A quote above
+`MAX_NEAR` (default 1 NEAR) is refused before anything is sent.
+
+8. **Price a refuel (free, mainnet).**
+   ```bash
+   DRY=1 NEAR_KEY_FILE=~/.near-gliana/you.json npm run refuel -- 1
+   ```
+   See: `DRY: 0.2155… NEAR (~$1.03) -> 1 USDC on Base to 0x…, ~22s. Nothing sent.`
+   (Measured 2026-10-29; NEAR Intents has no testnet, so a real refuel is mainnet.)
+
+9. **Refuel for real** (spends that NEAR): the same without `DRY=1`; add
+   `ALLOWANCE=allowance.<you>` to fill the contract's address. See the quote, then
+   `SUCCESS` and `REFUELED: 1 USDC delivered to 0x…`.
+
 ## Use it from any AI agent (MCP)
 
 The same payer ships in [`gliana-ai-mcp`](https://www.npmjs.com/package/gliana-ai-mcp)
@@ -171,6 +192,7 @@ src/address.ts           print the Base address a NEAR account controls.
 src/policy.ts            pay through the allowance contract (checks its digest matches first).
 src/deploy-allowance.ts  create allowance.<you> + agent.<you>, deploy, set the policy.
 src/policy-demo.ts       the agent pays through the allowance.
+src/refuel.ts            NEAR -> USDC on Base at the payer's own address, via NEAR Intents (1Click).
 contract/                agent-allowance: the NEAR contract (Rust, near-sdk), with its tests.
 src/x402-payer.test.ts   derivation vectors, the real MPC fixture, payment construction.
 skills/pay-with-near/    an agent skill in the near/agent-skills format.
@@ -182,6 +204,7 @@ demo/                    the recording script and the demo post.
 - **Chain Signatures** (`v1.signer` on mainnet, `v1.signer-prod.testnet`):
   signs the EIP-3009 digest; the Base address is derived from the MPC root key.
 - **A NEAR smart contract** (`contract/`, Rust near-sdk) that owns the Base address and enforces the budget, calling `v1.signer` cross-contract.
+- **NEAR Intents (1Click API)** to turn the agent's NEAR into USDC on Base at its own address (`refuel`).
 - **`@near-js/*`** for the signing transaction. Address derivation is
   implemented with `@noble` alone and matches `chainsig.js` on its vectors.
 

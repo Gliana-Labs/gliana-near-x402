@@ -12,7 +12,8 @@
     "contract:build": "cd contract && cargo near build non-reproducible-wasm",
     "contract:test": "cd contract && cargo test",
     "allowance:deploy": "tsx src/deploy-allowance.ts",
-    "allowance:pay": "tsx src/policy-demo.ts"
+    "allowance:pay": "tsx src/policy-demo.ts",
+    "refuel": "tsx src/refuel-cli.ts"
   },
   "dependencies": {
     "@near-js/accounts": "^2.5.1",
