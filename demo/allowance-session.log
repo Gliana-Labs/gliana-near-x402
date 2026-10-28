@@ -1,0 +1,34 @@
+Script started on 2026-10-29 03:31:27+07:00 [COMMAND="npm run demo:allowance" TERM="xterm-256color" TTY="/dev/pts/2" COLUMNS="117" LINES="34"]
+
+> gliana-near-x402@1.0.0 demo:allowance
+> tsx src/allowance-demo.ts
+
+Agent      agent.cocoanutx.near — its key can only ask the contract
+Allowance  allowance.cocoanutx.near (owner cocoanutx.near)
+Policy     $0.010 per payment, $0.050 a day, payees: 0x7662…80ad
+Base       0x1ec5840530f6730507162035e4924c49ccf9679d — held by the contract alone
+
+[1] REFUEL  0.1 USDC on Base, paid in NEAR through NEAR Intents
+  Quote: 0.022246401074008325479797 NEAR -> 0.1 USDC on Base to 0x1ec5840530f6730507162035e4924c49ccf9679d (~24s).
+  Wrapped 0.022246401074008325479797 NEAR; sending it to the deposit address 5276745fbf246b1e59df4bbe303eccfbb8751020de8f01c5d65aa0c88303cd39.
+    PENDING_DEPOSIT
+    PENDING_DEPOSIT
+    PROCESSING
+    PROCESSING
+    PROCESSING
+    SUCCESS
+  REFUELED 0.1 USDC
+
+[2] PAY     the agent buys live token prices from GlianaAI over x402
+  Asking the allowance contract allowance.cocoanutx.near to approve and NEAR's MPC network to sign (~15s)…
+  PAID $0.002 within the allowance
+  {"tool":"tools/token-price","costMicroUsd":2000,"vs":"USD","prices":{"ETH":2353.155,"NEAR":4.6707},"sources":{"ETH":"coinbase","NEAR":"coinbase"}}
+
+[3] ATTACK  a prompt-injected agent tries to send $5.00 to 0x000…dEaD
+  Asking the allowance contract allowance.cocoanutx.near to approve and NEAR's MPC network to sign (~15s)…
+  REFUSED on chain by allowance.cocoanutx.near: payee is not on the owner's list
+  Nothing was signed. A stolen agent key is worth one day's budget, to the owner's payees only.
+
+Spent today $0.002 of $0.050
+⠙[1G[0K
+Script done on 2026-10-29 03:33:42+07:00 [COMMAND_EXIT_CODE="0"]

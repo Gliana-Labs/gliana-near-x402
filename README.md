@@ -99,7 +99,17 @@ A leaked agent key is worth at most one day's budget, paid only to sellers the
 owner chose. The owner can pause it, swap the agent account (`set_agent`),
 change limits and payees, and move funds without the limits (`owner_pay`).
 
-**Verified on live testnet** (`allowance.gliana-x402.testnet`, signer
+**Verified on mainnet, 2026-10-29** (`allowance.cocoanutx.near`, signer `v1.signer`,
+Base address `0x1eC5840530f6730507162035E4924c49CCF9679d`), in one recorded run
+(`demo/allowance-session.log`, `npm run demo:allowance`):
+
+| Step | What happened | Proof |
+| --- | --- | --- |
+| Refuel | the agent's 0.0222 NEAR became 0.1 USDC at the contract's Base address via NEAR Intents (~25 s) | NEAR [`6wq2cYPJ…ky88`](https://nearblocks.io/txns/6wq2cYPJVQUKbK7Wh5yj3d6aLEiGbqdCS1Bkz9ozky88) · Base [`0xb383a32b…3c76`](https://basescan.org/tx/0xb383a32b84f02312f1a6f1382f1e047d39bda9788983b52b2f5fa48065943c76) |
+| Pay | the contract approved $0.002 to GlianaAI, the MPC signed, x402 settled, token prices returned | NEAR [`B4dzTyBB…ojRF`](https://nearblocks.io/txns/B4dzTyBBwHKZyDRsM6x8EcWEwKXECpb49LvvEGwpojRF) · Base [`0x8e7d8bea…046a`](https://basescan.org/tx/0x8e7d8bea652438a03ba0cdd21cd3499822e34b07552c61913b50a2e25467046a) |
+| Attack | the same agent key asked for $5.00 to `0x…dEaD`: refused, `payee is not on the owner's list`, nothing signed | NEAR [`G4wPa1TF…2vdS`](https://nearblocks.io/txns/G4wPa1TFUXJ5hBMrzfXwPyouQPmRMGkFfx4bCjGg2vdS) (failed, as it should) |
+
+Also **verified on live testnet** (`allowance.gliana-x402.testnet`, signer
 `v1.signer-prod.testnet`): a $0.002 payment to the listed payee was approved and
 signed in 19 s, and the signature recovers to exactly the contract's Base
 address `0xe32847B59D97cF36915D92064B99543743A88493`; the same call to an
@@ -129,7 +139,8 @@ Try it — do X, see Y:
    ```
    See: the contract approve and the MPC sign (~15-20 s). With USDC at the printed
    Base address the payment settles; a payee off the list is refused with the
-   contract's own reason.
+   contract's own reason. `npm run demo:allowance` runs the whole story at once:
+   refuel, an allowed payment, and a refused attack.
 
 For production, delete the contract account's full-access key after deploying
 (`near account delete-keys`), so nobody — not even the owner's machine — can
