@@ -135,6 +135,32 @@ For production, delete the contract account's full-access key after deploying
 (`near account delete-keys`), so nobody — not even the owner's machine — can
 redeploy it past the policy; the owner keeps control through `set_*` and `owner_pay`.
 
+## Use it from any AI agent (MCP)
+
+The same payer ships in [`gliana-ai-mcp`](https://www.npmjs.com/package/gliana-ai-mcp)
+(0.10+), the MCP server for Claude, Cursor and any MCP client — so an agent pays
+for 100+ AI models and 60+ tools with a NEAR account and no code:
+
+```json
+{
+  "mcpServers": {
+    "gliana-ai": {
+      "command": "npx",
+      "args": ["-y", "gliana-ai-mcp"],
+      "env": {
+        "GLIANA_NEAR_KEY_FILE": "/home/you/.near-gliana/agent.you.near.json",
+        "GLIANA_NEAR_ALLOWANCE": "allowance.you.near"
+      }
+    }
+  }
+}
+```
+
+With `GLIANA_NEAR_ALLOWANCE` the key is the agent's and only asks the contract;
+without it, the NEAR account signs directly. The `wallet` tool shows the Base
+address to fund; a policy refusal comes back as the contract's own reason.
+Verified end to end on testnet (MCP → contract approves → MPC signs → x402).
+
 ## What's here
 
 ```
