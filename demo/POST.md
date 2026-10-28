@@ -7,17 +7,18 @@ screenshots, and the link goes in the submission form.
 
 ## Draft
 
-> An AI agent just bought an inference call on Base.
+> Give an AI agent a budget, not a key.
 >
-> It has no Base private key. Not stored safely — it does not exist.
+> Its Base wallet belongs to a NEAR contract. The agent can only ask; the
+> contract signs only to approved sellers, $0.01 a payment, $0.05 a day.
 >
-> NEAR Chain Signatures signs the EIP-3009 authorisation. 17 nodes, 11 must
-> agree. The seller changed nothing.
+> On mainnet today: it refuelled itself via NEAR Intents, paid an x402 API,
+> then a prompt-injected $5 to an attacker was refused on chain.
 >
-> Built at #NEARHACKATHON · track 07 Agent Economy
+> Built at #NEARHACKATHON · Agent Economy · AI Security
 >
 > [video]
-> github.com/…
+> github.com/Gliana-Labs/gliana-near-x402
 
 ## Why it is written that way
 
@@ -33,7 +34,8 @@ launch-post house style.
 
 ## Reply, after it has been up an hour
 
-> The slow part is the interesting part — the signature takes ~15s because
-> no single machine holds the key. 11 of 17 validators have to agree.
+> Every step has a receipt: refuel Base 0xb383a32b…3c76, payment Base
+> 0x8e7d8bea…046a, refused attack NEAR G4wPa1TF…2vdS.
 >
-> A local key is instant because one machine has it. That is the trade.
+> Any Claude or Cursor agent can pay this way now: npx gliana-ai-mcp, with
+> GLIANA_NEAR_ALLOWANCE set.
