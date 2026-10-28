@@ -66,7 +66,9 @@ Needs Node.js 20+. Steps 1-3 need no account, no key and no money.
 
 4. **Pay it with a NEAR account (real money: ~$0.002 plus NEAR gas).**
    Send a little USDC on Base to the address step 2 prints for *your* mainnet
-   account, then:
+   account. The NEAR account must hold **at least ~0.35 NEAR** when it signs:
+   NEAR reserves the call's 300 TGas at a pessimistic gas price (~0.30 NEAR)
+   and refunds what is unused, so ~0.03 NEAR is actually spent. Then:
    ```bash
    NEAR_KEY_FILE=~/.near-gliana/key.json npm run demo
    ```
