@@ -22,7 +22,7 @@
 use near_sdk::json_types::{U128, U64};
 use near_sdk::serde_json::{json, Value};
 use near_sdk::store::IterableSet;
-use near_sdk::{env, near, require, AccountId, Gas, GasWeight, NearToken, PanicOnDefault, Promise, PromiseError};
+use near_sdk::{env, near, require, AccountId, Gas, GasWeight, NearToken, PanicOnDefault, PromiseError};
 
 /// Gas kept back for `on_signed`; all the rest of what is attached goes to the MPC (by weight).
 const CALLBACK_GAS: Gas = Gas::from_tgas(10);
@@ -113,7 +113,7 @@ impl Allowance {
     /// The agent's one power: get a payment signed, within the policy.
     /// Attach at least 1 yoctoNEAR (the MPC's fee, forwarded) and 300 TGas.
     #[payable]
-    pub fn pay(&mut self, to: String, value: U128, valid_after: U64, valid_before: U64, nonce: String) -> Promise {
+    pub fn pay(&mut self, to: String, value: U128, valid_after: U64, valid_before: U64, nonce: String) {
         require!(!self.paused, "paused by the owner");
         require!(env::predecessor_account_id() == self.agent, "only the agent account may pay");
         let (to_bytes, to_key) = hex20(&to);
@@ -132,7 +132,7 @@ impl Allowance {
 
     /// The owner moves funds out without the agent's limits (any payee, any amount).
     #[payable]
-    pub fn owner_pay(&mut self, to: String, value: U128, valid_after: U64, valid_before: U64, nonce: String) -> Promise {
+    pub fn owner_pay(&mut self, to: String, value: U128, valid_after: U64, valid_before: U64, nonce: String) {
         require!(env::predecessor_account_id() == self.owner, "only the owner");
         let digest = self.digest(&hex20(&to).0, value.0, valid_after.0, valid_before.0, &hex32(&nonce));
         self.request_signature(digest, 0)
@@ -219,18 +219,21 @@ impl Allowance {
         transfer_digest(&self.domain_separator, &self.from, to, value, valid_after, valid_before, nonce)
     }
 
-    fn request_signature(&mut self, digest: [u8; 32], value: u128) -> Promise {
+    fn request_signature(&mut self, digest: [u8; 32], value: u128) {
         require!(env::attached_deposit() >= NearToken::from_yoctonear(1), "attach at least 1 yoctoNEAR for the MPC fee");
         let args = json!({ "request": { "payload_v2": { "Ecdsa": hex::encode(digest) }, "path": self.path, "domain_id": 0 } });
-        Promise::new(self.signer.clone())
-            // Static 0 + weight 1: the runtime hands the sign call every unused gas unit, after
-            // the callback's fixed share — no hand arithmetic to get wrong.
-            .function_call_weight("sign".to_string(), args.to_string().into_bytes(), env::attached_deposit(), Gas::from_gas(0), GasWeight(1))
-            .then(
-                Self::ext(env::current_account_id())
-                    .with_static_gas(CALLBACK_GAS)
-                    .on_signed(U64(self.spent_day), U128(value)),
-            )
+        // Low-level promise calls on purpose (2026-10-29): near-sdk 5.30's `Promise` builder links
+        // every action host function, including testnet-only ones (gas keys,
+        // universal_state_init), and mainnet refused the wasm with "Link Error: unknown or
+        // invalid import". These two calls link only what they use.
+        let sign = env::promise_batch_create(&self.signer);
+        // Static 0 + weight 1: the runtime hands the sign call every unused gas unit, after
+        // the callback's fixed share — no hand arithmetic to get wrong.
+        env::promise_batch_action_function_call_weight(sign, "sign", args.to_string().as_bytes(), env::attached_deposit(), Gas::from_gas(0), GasWeight(1));
+        let callback = env::promise_batch_then(sign, &env::current_account_id());
+        let callback_args = json!({ "day": U64(self.spent_day), "value": U128(value) });
+        env::promise_batch_action_function_call(callback, "on_signed", callback_args.to_string().as_bytes(), NearToken::from_yoctonear(0), CALLBACK_GAS);
+        env::promise_return(callback);
     }
 }
 
