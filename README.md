@@ -1,4 +1,13 @@
-# Pay for AI with a NEAR account — no EVM private key anywhere
+# Saku — give an AI agent a budget, not a key
+
+**Saku** is an allowance for AI agents, enforced on NEAR. A NEAR smart contract
+holds the agent's wallet on another chain through Chain Signatures, and signs
+only to the sellers, amounts and daily budget you set. The agent's own key can
+only ask, so a stolen key is worth one day's budget at most. It refuels itself
+with NEAR Intents and pays any x402 API. *Saku* is Indonesian for pocket, as in
+*uang saku*: an allowance. Built by [GlianaAI](https://ai.glianalabs.com).
+
+## Under it: pay for AI with a NEAR account — no EVM private key anywhere
 
 **NEAR HACKATHON 2026 · tracks: Agent Economy (`agents`), AI Security & Defense (`security`)**
 
