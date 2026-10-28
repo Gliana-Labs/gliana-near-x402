@@ -1,0 +1,17 @@
+Script started on 2026-10-29 04:19:38+07:00 [COMMAND="npm run demo:allowance" <not executed on terminal>]
+
+> gliana-near-x402@1.0.0 demo:allowance
+> tsx src/allowance-demo.ts
+
+Agent      agent.cocoanutx.near — its key can only ask the contract
+Allowance  allowance.cocoanutx.near (owner cocoanutx.near)
+Policy     $0.010 per payment, $0.050 a day, payees: 0x7662…80ad
+Base       0x1ec5840530f6730507162035e4924c49ccf9679d — held by the contract alone
+
+[3] ATTACK  a prompt-injected agent tries to send $5.00 to 0x000…dEaD
+  REFUSED by allowance.cocoanutx.near: payee is not on the owner's list
+  Refused by the contract's own check before any transaction: nothing sent, nothing signed.
+
+Spent today $0.004 of $0.050
+⠙[1G[0K
+Script done on 2026-10-29 04:19:41+07:00 [COMMAND_EXIT_CODE="0"]
