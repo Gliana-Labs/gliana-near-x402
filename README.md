@@ -118,6 +118,14 @@ Base address `0x1eC5840530f6730507162035E4924c49CCF9679d`), in one recorded run
 | Pay | the contract approved $0.002 to GlianaAI, the MPC signed, x402 settled, token prices returned | NEAR [`B4dzTyBB…ojRF`](https://nearblocks.io/txns/B4dzTyBBwHKZyDRsM6x8EcWEwKXECpb49LvvEGwpojRF) · Base [`0x8e7d8bea…046a`](https://basescan.org/tx/0x8e7d8bea652438a03ba0cdd21cd3499822e34b07552c61913b50a2e25467046a) |
 | Attack | the same agent key asked for $5.00 to `0x…dEaD`: refused, `payee is not on the owner's list`, nothing signed | NEAR [`G4wPa1TF…2vdS`](https://nearblocks.io/txns/G4wPa1TFUXJ5hBMrzfXwPyouQPmRMGkFfx4bCjGg2vdS) (failed, as it should) |
 
+**Refusals are instant and free.** The contract's rules also answer as a view,
+`check` — the client asks it before `pay`, so a refused payment never becomes a
+transaction. In the run above the attack was refused by a failed `pay` in 11.6 s;
+with `check` (deployed to the same contract after that run) the same refusal takes
+**0.17 s on mainnet** and sends nothing. `pay` still enforces every rule on chain.
+An allowed payment still waits ~15 s, for the MPC signature itself. All RPC goes
+through FastNEAR: the public `rpc.*.near.org` endpoints measured 3.1-3.7 s a call.
+
 Also **verified on live testnet** (`allowance.gliana-x402.testnet`, signer
 `v1.signer-prod.testnet`): a $0.002 payment to the listed payee was approved and
 signed in 19 s, and the signature recovers to exactly the contract's Base
@@ -130,9 +138,10 @@ Try it — do X, see Y:
    ```bash
    npm run contract:test
    ```
-   See: `10 passed` — including the contract's digest matching viem's byte for byte
+   See: `11 passed` — including the contract's digest matching viem's byte for byte
    (USDC's real Base domain separator `0x02fa7265…834f`), the payee list, both caps,
-   the day roll-over, the refund on a failed signature, and pausing.
+   the day roll-over, the refund on a failed signature, pausing, and the free
+   `check` view answering exactly like `pay`.
 
 6. **Deploy your own allowance on testnet** (free; needs a testnet account key file).
    ```bash

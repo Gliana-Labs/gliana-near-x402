@@ -321,6 +321,13 @@ export const SIGNER_CONTRACT = {
 export type NearNetwork = keyof typeof ROOT_PUBLIC_KEY_NAJ;
 
 /**
+ * The RPC every call goes through. FastNEAR, not rpc.<network>.near.org: measured
+ * 2026-10-29, the public near.org endpoints took 3.1-3.7 s per call against
+ * 0.1-0.3 s here — a policy refusal took 6.5 s on views alone. NEAR_RPC_URL overrides.
+ */
+export const rpcUrl = (network: NearNetwork): string => process.env.NEAR_RPC_URL || `https://rpc.${network}.fastnear.com`;
+
+/**
  * The EVM address a NEAR account controls on a given path.
  *
  * The path is a plain string and any value works, so one account has an

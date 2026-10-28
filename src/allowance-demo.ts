@@ -15,7 +15,7 @@ import { KeyPair } from '@near-js/crypto';
 import { JsonRpcProvider } from '@near-js/providers';
 import { KeyPairSigner } from '@near-js/signers';
 import type { Hex } from 'viem';
-import { authorizationDigest, payWithNear, randomNonce, type Accept, type NearNetwork } from './x402-payer.js';
+import { authorizationDigest, payWithNear, randomNonce, rpcUrl, type Accept, type NearNetwork } from './x402-payer.js';
 import { policySigner } from './policy.js';
 import { refuel } from './refuel.js';
 
@@ -27,7 +27,7 @@ if (!ALLOWANCE || !KEY_FILE) {
   process.exit(1);
 }
 const agent = JSON.parse(readFileSync(KEY_FILE, 'utf8')) as { account_id: string; private_key: string };
-const provider = new JsonRpcProvider({ url: `https://rpc.${NETWORK}.near.org` });
+const provider = new JsonRpcProvider({ url: rpcUrl(NETWORK as NearNetwork) });
 const policy = (await provider.callFunction(ALLOWANCE, 'get_policy', {})) as {
   owner: string; from: string; per_payment_max: string; daily_limit: string; spent_today: string; payees: string[];
 };

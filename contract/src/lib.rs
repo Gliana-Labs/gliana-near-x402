@@ -114,16 +114,11 @@ impl Allowance {
     /// Attach at least 1 yoctoNEAR (the MPC's fee, forwarded) and 300 TGas.
     #[payable]
     pub fn pay(&mut self, to: String, value: U128, valid_after: U64, valid_before: U64, nonce: String) {
-        require!(!self.paused, "paused by the owner");
-        require!(env::predecessor_account_id() == self.agent, "only the agent account may pay");
-        let (to_bytes, to_key) = hex20(&to);
-        require!(self.payees.contains(&to_key), "payee is not on the owner's list");
-        require!(value.0 > 0 && value.0 <= self.per_payment_max, "amount is over the per-payment limit");
-        let now_s = env::block_timestamp() / 1_000_000_000;
-        require!(valid_before.0 > now_s && valid_before.0 <= now_s + MAX_VALIDITY_S, "valid_before must be within the next hour");
-        require!(valid_after.0 < valid_before.0, "valid_after must be before valid_before");
+        if let Some(why) = self.refusal(&env::predecessor_account_id(), &to, value.0, valid_after.0, valid_before.0) {
+            env::panic_str(why);
+        }
+        let (to_bytes, _) = hex20(&to);
         self.roll_day();
-        require!(self.spent_today + value.0 <= self.daily_limit, "daily limit reached");
         // Counted now, before the signature exists; given back if signing fails (on_signed).
         self.spent_today += value.0;
         let digest = self.digest(&to_bytes, value.0, valid_after.0, valid_before.0, &hex32(&nonce));
@@ -197,6 +192,14 @@ impl Allowance {
     }
 
     /// The digest `pay` would ask the MPC to sign, so a client can check it matches its own.
+    /// The same rules `pay` enforces, as a free view: None = it would be signed, else why not.
+    /// Clients ask this first (2026-10-29), so a refused payment costs no gas and no
+    /// transaction — it took 11.6 s on mainnet to learn a refusal from `pay` itself.
+    /// Advisory only: `pay` re-checks everything on chain.
+    pub fn check(&self, agent: AccountId, to: String, value: U128, valid_after: U64, valid_before: U64) -> Option<String> {
+        self.refusal(&agent, &to, value.0, valid_after.0, valid_before.0).map(str::to_string)
+    }
+
     pub fn preview_digest(&self, to: String, value: U128, valid_after: U64, valid_before: U64, nonce: String) -> String {
         format!("0x{}", hex::encode(self.digest(&hex20(&to).0, value.0, valid_after.0, valid_before.0, &hex32(&nonce))))
     }
@@ -205,6 +208,30 @@ impl Allowance {
 impl Allowance {
     fn only_owner(&self) {
         require!(env::predecessor_account_id() == self.owner, "only the owner");
+    }
+
+    /// Every rule of the policy, in one place for `pay` and `check`. Reads the day's spend
+    /// as `roll_day` would leave it, without writing.
+    fn refusal(&self, caller: &AccountId, to: &str, value: u128, valid_after: u64, valid_before: u64) -> Option<&'static str> {
+        let now_s = env::block_timestamp() / 1_000_000_000;
+        let spent = if env::block_timestamp() / DAY_NS == self.spent_day { self.spent_today } else { 0 };
+        if self.paused {
+            Some("paused by the owner")
+        } else if *caller != self.agent {
+            Some("only the agent account may pay")
+        } else if !self.payees.contains(&hex20(to).1) {
+            Some("payee is not on the owner's list")
+        } else if value == 0 || value > self.per_payment_max {
+            Some("amount is over the per-payment limit")
+        } else if valid_before <= now_s || valid_before > now_s + MAX_VALIDITY_S {
+            Some("valid_before must be within the next hour")
+        } else if valid_after >= valid_before {
+            Some("valid_after must be before valid_before")
+        } else if spent + value > self.daily_limit {
+            Some("daily limit reached")
+        } else {
+            None
+        }
     }
 
     fn roll_day(&mut self) {
@@ -343,6 +370,25 @@ mod tests {
         ctx(accounts(1), 1_700_000_000);
         let _ = c.pay(GLIANA.into(), U128(2000), U64(1_699_999_940), U64(1_700_000_600), NONCE.into());
         assert_eq!(c.get_policy().spent_today, U128(2000));
+    }
+
+    /// The free view gives the same answer `pay` would, before any transaction.
+    #[test]
+    fn check_answers_like_pay_without_a_transaction() {
+        let mut c = contract();
+        ctx(accounts(1), 1_700_000_000);
+        let ok = |c: &Allowance, to: &str, v: u128| c.check(accounts(1), to.into(), U128(v), U64(1_699_999_940), U64(1_700_000_600));
+        assert_eq!(ok(&c, GLIANA, 2000), None);
+        assert_eq!(ok(&c, "0x000000000000000000000000000000000000dEaD", 2000).as_deref(), Some("payee is not on the owner's list"));
+        assert_eq!(ok(&c, GLIANA, 10_001).as_deref(), Some("amount is over the per-payment limit"));
+        assert_eq!(c.check(accounts(2), GLIANA.into(), U128(2000), U64(1_699_999_940), U64(1_700_000_600)).as_deref(), Some("only the agent account may pay"));
+        assert_eq!(c.check(accounts(1), GLIANA.into(), U128(2000), U64(1_699_999_940), U64(1_700_000_000 + 7200)).as_deref(), Some("valid_before must be within the next hour"));
+        let _ = c.pay(GLIANA.into(), U128(10_000), U64(1_699_999_940), U64(1_700_000_600), NONCE.into());
+        let _ = c.pay(GLIANA.into(), U128(10_000), U64(1_699_999_940), U64(1_700_000_600), NONCE.into());
+        assert_eq!(ok(&c, GLIANA, 10_000).as_deref(), Some("daily limit reached"));
+        // The next day the spend reads as zero, though nothing has written the roll yet.
+        ctx(accounts(1), 1_700_000_000 + 86_400);
+        assert_eq!(c.check(accounts(1), GLIANA.into(), U128(10_000), U64(1_700_086_340), U64(1_700_087_000)), None);
     }
 
     #[test]

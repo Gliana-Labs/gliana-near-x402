@@ -19,6 +19,7 @@ import {
   type HashSigner,
   type MpcSignature,
   type NearNetwork,
+  rpcUrl,
 } from './x402-payer.js';
 
 export interface NearSignerOpts {
@@ -43,7 +44,7 @@ export interface NearSignerOpts {
  */
 export function nearSigner(opts: NearSignerOpts): HashSigner {
   const network = opts.network ?? 'mainnet';
-  const provider = new JsonRpcProvider({ url: opts.rpcUrl ?? `https://rpc.${network}.near.org` });
+  const provider = new JsonRpcProvider({ url: opts.rpcUrl ?? rpcUrl(network) });
   const account = new Account(opts.accountId, provider, new KeyPairSigner(KeyPair.fromString(opts.privateKey as `ed25519:${string}`)));
 
   return async (digest) => {

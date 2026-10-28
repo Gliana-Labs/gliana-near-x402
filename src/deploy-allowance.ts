@@ -20,7 +20,7 @@ import { Account } from '@near-js/accounts';
 import { KeyPair } from '@near-js/crypto';
 import { JsonRpcProvider } from '@near-js/providers';
 import { KeyPairSigner } from '@near-js/signers';
-import { deriveEvmAddress, type NearNetwork } from './x402-payer.js';
+import { deriveEvmAddress, rpcUrl, type NearNetwork } from './x402-payer.js';
 
 const NETWORK = (process.env.NEAR_NETWORK ?? 'testnet') as NearNetwork;
 const SIGNER = NETWORK === 'mainnet' ? 'v1.signer' : 'v1.signer-prod.testnet';
@@ -37,7 +37,7 @@ if (!keyFile) {
   process.exit(1);
 }
 const owner = JSON.parse(readFileSync(keyFile, 'utf8')) as { account_id: string; private_key: string };
-const provider = new JsonRpcProvider({ url: `https://rpc.${NETWORK}.near.org` });
+const provider = new JsonRpcProvider({ url: rpcUrl(NETWORK as NearNetwork) });
 const as = (id: string, key: string) => new Account(id, provider, new KeyPairSigner(KeyPair.fromString(key as `ed25519:${string}`)));
 const ownerAccount = as(owner.account_id, owner.private_key);
 

@@ -12,7 +12,7 @@ import { Account } from '@near-js/accounts';
 import { KeyPair } from '@near-js/crypto';
 import { JsonRpcProvider } from '@near-js/providers';
 import { KeyPairSigner } from '@near-js/signers';
-import { deriveEvmAddress } from './x402-payer.js';
+import { deriveEvmAddress, rpcUrl } from './x402-payer.js';
 import { refuel, refuelQuote } from './refuel.js';
 
 const usdc = Number(process.argv[2] ?? 1);
@@ -26,7 +26,7 @@ if (!keyFile) {
   process.exit(1);
 }
 const key = JSON.parse(readFileSync(keyFile, 'utf8')) as { account_id: string; private_key: string };
-const provider = new JsonRpcProvider({ url: 'https://rpc.mainnet.near.org' });
+const provider = new JsonRpcProvider({ url: rpcUrl('mainnet') });
 const recipient = process.env.ALLOWANCE
   ? ((await provider.callFunction(process.env.ALLOWANCE, 'get_policy', {})) as { from: string }).from
   : await deriveEvmAddress(key.account_id, process.env.NEAR_PATH ?? 'gliana-x402', 'mainnet');
