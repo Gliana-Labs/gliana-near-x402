@@ -11,6 +11,7 @@
  *
  * Policy (micro-USDC, 1 USDC = 1,000,000): PER_PAYMENT_MAX (default 10000 = $0.01),
  * DAILY_LIMIT (default 50000 = $0.05), PAYEES (comma-separated, default GlianaAI's Base payTo).
+ * Funding from the owner: ALLOWANCE_NEAR (default 2.2, mostly contract storage), AGENT_NEAR (default 1).
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -68,8 +69,11 @@ async function subAccount(prefix: string, near: bigint): Promise<{ id: string; k
 }
 
 const NEAR = 10n ** 24n;
-const allowance = await subAccount('allowance', 3n * NEAR); // contract storage (~175 KB) + room
-const agent = await subAccount('agent', (NEAR * 6n) / 10n); // 300 TGas is reserved at a pessimistic price per pay (~0.31 NEAR)
+const near = (v: string | undefined, dflt: string) => BigInt(Math.round(Number(v ?? dflt) * 1000)) * 10n ** 21n;
+// Contract storage is 1 NEAR per 100 KB: the 175 KB wasm locks ~1.76 NEAR, given back if the account is deleted.
+const allowance = await subAccount('allowance', near(process.env.ALLOWANCE_NEAR, '2.2'));
+// 300 TGas is reserved at a pessimistic price per pay (~0.31 NEAR, mostly refunded), plus NEAR to refuel with.
+const agent = await subAccount('agent', near(process.env.AGENT_NEAR, '1'));
 const from = await deriveEvmAddress(allowance.id, PATH, NETWORK);
 
 const contract = as(allowance.id, allowance.key);

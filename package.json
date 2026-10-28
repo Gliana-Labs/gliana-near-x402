@@ -13,7 +13,8 @@
     "contract:test": "cd contract && cargo test",
     "allowance:deploy": "tsx src/deploy-allowance.ts",
     "allowance:pay": "tsx src/policy-demo.ts",
-    "refuel": "tsx src/refuel-cli.ts"
+    "refuel": "tsx src/refuel-cli.ts",
+    "demo:allowance": "tsx src/allowance-demo.ts"
   },
   "dependencies": {
     "@near-js/accounts": "^2.5.1",
