@@ -2,13 +2,15 @@
  * The agent-allowance story in one run, recorded for the demo video:
  *
  *   1. refuel  the agent turns a little NEAR into USDC at the contract's Base address (NEAR Intents)
- *   2. pay     the agent buys an API call; the contract approves, the MPC signs, x402 settles
- *   3. attack  the same agent, hijacked, tries to send $5 to an attacker: refused on chain
+ *   2. pay     the agent buys a call from Exa, a seller that has never heard of us: the contract approves, the MPC signs, x402 settles
+ *   3. held    the agent wants an image over its per-payment limit: nothing is signed until the owner approves it
+ *   4. attack  the same agent, hijacked, tries to send $5 to an attacker: refused on chain
  *
  *   AGENT_KEY_FILE=~/.near-gliana/agent.you.near.json ALLOWANCE=allowance.you.near npm run demo:allowance
  *
  * REFUEL_USDC (default 0.1) sets the refuel; SKIP_REFUEL=1 skips it (testnet has no NEAR Intents);
- * SKIP_PAY=1 skips the paid call, so the run costs nothing (the refusal sends no transaction).
+ * SKIP_PAY=1 skips the paid call and SKIP_HELD=1 the one that waits for the owner, so the run can cost nothing
+ * (the refusal sends no transaction).
  */
 import { readFileSync } from 'node:fs';
 import { Account } from '@near-js/accounts';
@@ -58,10 +60,10 @@ if (process.env.SKIP_REFUEL !== '1') {
 
 if (process.env.SKIP_PAY !== '1') {
 console.log('');
-console.log('[2] PAY     the agent buys live token prices from GlianaAI over x402');
+console.log('[2] PAY     the agent buys a page from Exa, a seller that changed nothing for this');
 const paid = await payWithNear({
-  url: 'https://api.glianalabs.com/x402/tools/token-price',
-  body: { symbols: 'NEAR,ETH', vs: 'usd' },
+  url: 'https://api.exa.ai/contents',
+  body: { urls: ['https://near.org'], text: { maxCharacters: 120 } },
   from: `0x${policy.from.replace(/^0x/, '')}` as Hex,
   sign,
 });
@@ -69,14 +71,32 @@ if (paid.status !== 200) {
   console.error(`  NOT PAID — HTTP ${paid.status} ${JSON.stringify(paid.body).slice(0, 300)}`);
   process.exit(1);
 }
-const prices = (paid.body as { output?: unknown; prices?: unknown })?.output ?? paid.body;
+const page = (paid.body as { results?: { title?: string; text?: string }[] })?.results?.[0];
 console.log(`  PAID ${usd(paid.chargedMicroUsd ?? 0)} within the allowance`);
-console.log(`  ${JSON.stringify(prices).slice(0, 160)}`);
+console.log(`  ${JSON.stringify({ title: page?.title, text: page?.text }).slice(0, 160)}`);
+await pause(1500);
+}
+
+if (process.env.SKIP_HELD !== '1') {
+console.log('');
+console.log(`[3] HELD    the agent wants an image, over its ${usd(policy.per_payment_max)} limit: it waits for the owner`);
+const image = await payWithNear({
+  url: 'https://api.glianalabs.com/x402/krea-2-medium-turbo',
+  body: { prompt: 'a small brass pocket with a coin in it, studio light', aspect_ratio: '1:1' },
+  from: `0x${policy.from.replace(/^0x/, '')}` as Hex,
+  sign,
+});
+if (image.status !== 200) {
+  console.error(`  NOT PAID — HTTP ${image.status} ${JSON.stringify(image.body).slice(0, 300)}`);
+  process.exit(1);
+}
+console.log(`  PAID ${usd(image.chargedMicroUsd ?? 0)} after the owner approved it`);
+console.log(`  ${JSON.stringify((image.body as { output?: unknown })?.output ?? image.body).slice(0, 160)}`);
 await pause(1500);
 }
 
 console.log('');
-console.log('[3] ATTACK  a prompt-injected agent tries to send $5.00 to 0x000…dEaD');
+console.log('[4] ATTACK  a prompt-injected agent tries to send $5.00 to 0x000…dEaD');
 const now = Math.floor(Date.now() / 1000);
 const attacker = '0x000000000000000000000000000000000000dEaD' as Hex;
 const accept = { scheme: 'exact', network: 'eip155:8453', maxAmountRequired: '5000000', payTo: attacker, asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', extra: { name: 'USD Coin', version: '2' }, maxTimeoutSeconds: 600 } as unknown as Accept;

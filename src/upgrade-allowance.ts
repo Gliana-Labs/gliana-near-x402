@@ -4,6 +4,10 @@
  * ~/.near-gliana/ — the one deploy-allowance.ts saved.
  *
  *   ALLOWANCE=allowance.you.near NEAR_NETWORK=mainnet npm run allowance:upgrade
+ *
+ * MIGRATE=1 also moves the state onto a new layout, in the same transaction as the new code, so there's
+ * no moment when the new code runs against the old state. The account, and so the Base address, stay the same.
+ * APPROVAL_MAX (micro-USD, default 1000000) and PAYEE_DELAY_S (default 86400) are set then, and only then.
  */
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -12,6 +16,7 @@ import { Account } from '@near-js/accounts';
 import { KeyPair } from '@near-js/crypto';
 import { JsonRpcProvider } from '@near-js/providers';
 import { KeyPairSigner } from '@near-js/signers';
+import { actionCreators } from '@near-js/transactions';
 import { rpcUrl, type NearNetwork } from './x402-payer.js';
 
 const ALLOWANCE = process.env.ALLOWANCE;
@@ -24,6 +29,15 @@ const key = JSON.parse(readFileSync(join(homedir(), '.near-gliana', `${ALLOWANCE
 const provider = new JsonRpcProvider({ url: rpcUrl(NETWORK as NearNetwork) });
 const account = new Account(ALLOWANCE, provider, new KeyPairSigner(KeyPair.fromString(key.private_key as `ed25519:${string}`)));
 const before = JSON.stringify(await provider.callFunction(ALLOWANCE, 'get_policy', {}));
-await account.deployContract(readFileSync('contract/target/near/agent_allowance.wasm'));
+const wasm = readFileSync('contract/target/near/agent_allowance.wasm');
+if (process.env.MIGRATE === '1') {
+  const args = { approval_max: process.env.APPROVAL_MAX ?? '1000000', payee_delay_s: process.env.PAYEE_DELAY_S ?? '86400' };
+  await account.signAndSendTransaction({
+    receiverId: ALLOWANCE,
+    actions: [actionCreators.deployContract(wasm), actionCreators.functionCall('migrate', args, 100_000_000_000_000n, 0n)],
+  });
+} else {
+  await account.deployContract(wasm);
+}
 const after = JSON.stringify(await provider.callFunction(ALLOWANCE, 'get_policy', {}));
 console.log(`upgraded ${ALLOWANCE} (${NETWORK}); policy ${before === after ? 'unchanged' : 'CHANGED'}`);

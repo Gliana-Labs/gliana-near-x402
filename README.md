@@ -7,6 +7,8 @@ only ask, so a stolen key is worth one day's budget at most. It refuels itself
 with NEAR Intents and pays any x402 API. *Saku* is Indonesian for pocket, as in
 *uang saku*: an allowance. Built by [GlianaAI](https://ai.glianalabs.com).
 
+**See it live, nothing to install:** [the owner page](https://gliana-labs.github.io/gliana-near-x402/) reads the budget and history straight from the contract.
+
 **Demo video (1:46):** [on X](https://x.com/Gliana_agent/status/2118984586587975724) · [demo/saku-demo.mp4](demo/saku-demo.mp4). Refuel, a paid call, and a prompt-injected $5 payment refused, from real mainnet runs.
 
 ## Under it: pay for AI with a NEAR account — no EVM private key anywhere
@@ -55,7 +57,7 @@ Needs Node.js 20+. Steps 1-3 need no account, no key and no money.
    ```bash
    npm install && npm test
    ```
-   See: `36 passed`. They include a real reply from `v1.signer-prod.testnet`
+   See: `38 passed`. They include a real reply from `v1.signer-prod.testnet`
    (a committed fixture) whose signature recovers to the address derived
    offline, and address derivation checked against `chainsig.js` vectors.
 
@@ -144,10 +146,11 @@ Try it — do X, see Y:
    ```bash
    npm run contract:test
    ```
-   See: `11 passed` — including the contract's digest matching viem's byte for byte
+   See: `23 passed` — including the contract's digest matching viem's byte for byte
    (USDC's real Base domain separator `0x02fa7265…834f`), the payee list, both caps,
-   the day roll-over, the refund on a failed signature, pausing, and the free
-   `check` view answering exactly like `pay`.
+   the day roll-over, the refund on a failed signature, pausing, the free `check`
+   view answering exactly like `pay`, payments that wait for the owner, the wait on
+   new sellers, and revoking.
 
 6. **Deploy your own allowance on testnet** (free; needs a testnet account key file).
    ```bash
@@ -169,6 +172,26 @@ Try it — do X, see Y:
 For production, delete the contract account's full-access key after deploying
 (`near account delete-keys`), so nobody — not even the owner's machine — can
 redeploy it past the policy; the owner keeps control through `set_*` and `owner_pay`.
+
+## When something looks wrong
+
+Three rules for the cases a budget alone doesn't cover, in `contract/`:
+
+| Rule | What happens |
+| --- | --- |
+| **The owner approves what's unusual** | A payment to a listed seller over the per-payment cap or the day's budget, up to `approval_max`, isn't refused and isn't signed. It waits. The owner calls `approve`, the MPC signs, and the agent reads the signature back from `get_held`. Approving needs a full-access key, so a limited key can't do it |
+| **New sellers wait a day** | A seller added with `add_payee` can't be paid for `payee_delay_s`, which is fixed when the rules are set. A leaked owner key can't instantly add an attacker and drain the wallet through the agent |
+| **`revoke` in one call** | The agent is cut off, everything waiting is refused, and the money stays put. Coming back takes a new agent account as well as unpausing, so the leaked key stays useless |
+
+A stolen agent key can fill the waiting list (10 at most) and nothing more. Every decision goes in a short history on the contract (`get_history`), refusals included, so the [owner page](https://gliana-labs.github.io/gliana-near-x402/) needs no indexer and no server of ours.
+
+**Verified on live testnet with the real MPC, 2026-11-07** (`allowance.gliana-x402.testnet`, upgraded in place, so the same Base address): an ordinary payment signed; one over the cap held, approved, and its signature recovered to the contract's address; another held and rejected; a new seller refused until its wait ends; revoke, then coming back with a chosen agent. Run it yourself, free, against your own testnet allowance:
+
+```bash
+NEAR_NETWORK=testnet ALLOWANCE=allowance.<you> AGENT_KEY_FILE=~/.near-gliana/agent.<you>.json OWNER_KEY_FILE=~/.near-gliana/you.testnet.json npx tsx src/rehearse.ts
+```
+
+See: `PASS` on each line. `npm run allowance:owner -- list | approve <id> | reject <id> | revoke` does the owner's part from a terminal; the owner page does it from a wallet.
 
 ## Refuel: NEAR in, USDC on Base out (NEAR Intents)
 
@@ -258,9 +281,13 @@ demo/                    the recording script and the demo post.
 
 ## Honest limits
 
-- **Base (EVM) only.** Solana's `exact` scheme signs a serialized transaction,
-  not an EIP-712 digest: possible with the same primitive, but a different
-  construction, so it is refused with a reason rather than half-shipped.
+- **Base (EVM) only, for now.** More chains are the next step: other EVM chains with
+  USDC need little beyond their domain separator. Solana's `exact` scheme signs a
+  serialized transaction, not an EIP-712 digest. `v1.signer` does answer with an
+  ed25519 key for this contract, so it's possible, but it's a different construction,
+  and today it's refused with a reason rather than half-shipped.
+- **No USDC on NEAR.** The contract could pay NEAR's own USDC with `ft_transfer`, but
+  the x402 sellers we found are on Base and Solana, so there's nobody to pay yet.
 - **15 seconds is slow.** It buys a key that does not exist.
 - **One attempt, never an automatic retry.** The nonce is single-use, and a
   retry after a payment that did settle pays twice for one answer.

@@ -319,3 +319,44 @@ describe('rsvFromMpc — against a real v1.signer reply', () => {
     expect(SIGN_DEPOSIT).toBe(1n);
   });
 });
+
+describe('x402 v2 sellers', () => {
+  // The shape api.exa.ai answers with (2026-11-07): an empty body, the challenge in a header.
+  const accept = { scheme: 'exact', network: 'eip155:8453', amount: '1000', payTo: '0x6d6E695b09861467c7d462f5AAF31cF3540B9192', asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', maxTimeoutSeconds: 60, extra: { name: 'USD Coin', version: '2' } };
+  const challenge = { x402Version: 2, resource: { url: 'https://api.exa.ai/contents' }, accepts: [{ scheme: 'exact', network: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp', amount: '1000', payTo: '12Ec2cJmfR1C9uwejzxcuMhUgEC7wDrLgm1wBvvR5w9E', asset: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' }, accept] };
+  const FROM = '0x1eC5840530f6730507162035E4924c49CCF9679d' as const;
+  const SIG = { r: `0x${'a'.repeat(64)}`, s: `0x${'b'.repeat(64)}`, v: 0 } as never;
+
+  it('reads a challenge from the header when the body has none, and pays the EVM option', async () => {
+    const seen: Record<string, string>[] = [];
+    let auth: { to?: string; value?: string } = {};
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      seen.push(init.headers as Record<string, string>);
+      if (seen.length === 1) return new Response(null, { status: 402, headers: { 'payment-required': btoa(JSON.stringify(challenge)) } });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as typeof fetch;
+    const paid = await payWithNear({ url: 'https://api.exa.ai/contents', body: {}, from: FROM, fetchImpl, sign: async (_d, a) => { auth = a; return SIG; } });
+    expect(paid.status).toBe(200);
+    expect(paid.chargedMicroUsd).toBe(1000);
+    expect(auth.to).toBe(accept.payTo);
+    expect(auth.value).toBe('1000');
+    expect(seen[1]['X-PAYMENT']).toBeUndefined();
+    const sent = JSON.parse(atob(seen[1]['PAYMENT-SIGNATURE']));
+    expect(sent.x402Version).toBe(2);
+    expect(sent.accepted).toEqual(accept);
+    expect(sent.resource).toEqual(challenge.resource);
+    expect(sent.payload.authorization.to).toBe(accept.payTo);
+  });
+
+  it('still answers a v1 seller the old way', async () => {
+    const v1 = { x402Version: 1, accepts: [{ ...accept, amount: undefined, maxAmountRequired: '2000' }] };
+    const seen: Record<string, string>[] = [];
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      seen.push(init.headers as Record<string, string>);
+      return seen.length === 1 ? new Response(JSON.stringify(v1), { status: 402 }) : new Response('{}', { status: 200 });
+    }) as typeof fetch;
+    await payWithNear({ url: 'https://x.test', from: FROM, fetchImpl, sign: async () => SIG });
+    expect(seen[1]['X-PAYMENT']).toBeTruthy();
+    expect(seen[1]['PAYMENT-SIGNATURE']).toBeUndefined();
+  });
+});

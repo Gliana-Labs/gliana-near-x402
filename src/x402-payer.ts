@@ -46,7 +46,9 @@ export type HashSigner = (digest: Hex, auth: Authorization) => Promise<Rsv>;
 export interface Accept {
   scheme: string;
   network: string;
+  /** x402 v1 says maxAmountRequired, v2 says amount. readChallenge fills this in from either. */
   maxAmountRequired: string;
+  amount?: string;
   resource?: string;
   payTo: string;
   asset: string;
@@ -56,6 +58,7 @@ export interface Accept {
 
 export interface Challenge {
   x402Version?: number;
+  resource?: unknown;
   accepts?: Accept[];
   error?: string;
 }
@@ -74,6 +77,19 @@ export const EVM_CHAIN_IDS: Record<string, number> = {
   'base-sepolia': 84532,
   'eip155:84532': 84532,
 };
+
+/**
+ * What a 402 asks for. Sellers on x402 v1 put it in the body. Those on v2, like Exa, put it in a base64
+ * `payment-required` header and may send no body at all.
+ */
+export async function readChallenge(res: Response): Promise<Challenge> {
+  let challenge = (await res.json().catch(() => ({}))) as Challenge;
+  if (!challenge.accepts?.length) {
+    const header = res.headers.get('payment-required');
+    if (header) challenge = JSON.parse(atob(header)) as Challenge;
+  }
+  return { ...challenge, accepts: challenge.accepts?.map((a) => ({ ...a, maxAmountRequired: a.maxAmountRequired ?? a.amount ?? '' })) };
+}
 
 /** Pick the option this payer can actually sign, not just the first one. */
 export function selectAccept(challenge: Challenge): Accept | null {
@@ -204,6 +220,12 @@ export function paymentHeader(accept: Accept, auth: Authorization, signature: He
   return btoa(JSON.stringify(payload));
 }
 
+/** x402 v2's header: the seller's own option echoed back, so it can tell which one was paid. */
+export function paymentSignatureHeader(challenge: Challenge, accept: Accept, auth: Authorization, signature: Hex): string {
+  const { maxAmountRequired: _filledIn, ...accepted } = accept;
+  return btoa(JSON.stringify({ x402Version: 2, payload: { signature, authorization: auth }, resource: challenge.resource, accepted }));
+}
+
 export interface PayResult {
   status: number;
   body: unknown;
@@ -252,7 +274,7 @@ export async function payWithNear(opts: {
     };
   }
 
-  const challenge = (await probe.json().catch(() => ({}))) as Challenge;
+  const challenge = await readChallenge(probe);
   const accept = selectAccept(challenge);
   if (!accept) {
     const offered = (challenge.accepts ?? []).map((a) => `${a.network}/${a.scheme}`).join(', ') || 'none';
@@ -267,7 +289,10 @@ export async function payWithNear(opts: {
 
   const paid = await doFetch(opts.url, {
     ...init,
-    headers: { ...(init.headers as Record<string, string>), 'X-PAYMENT': paymentHeader(accept, auth, signature) },
+    headers: {
+      ...(init.headers as Record<string, string>),
+      ...(challenge.x402Version === 2 ? { 'PAYMENT-SIGNATURE': paymentSignatureHeader(challenge, accept, auth, signature) } : { 'X-PAYMENT': paymentHeader(accept, auth, signature) }),
+    },
   });
 
   return {

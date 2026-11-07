@@ -18,10 +18,24 @@
 //! sellers the owner chose — and the owner can pause the contract or swap the
 //! agent account at any time. The owner can also move funds without the limits
 //! (`owner_pay`), so nothing is ever stuck.
+//!
+//! Three more rules for when something looks wrong (2026-11-07):
+//!
+//!   - A payment that is unusual but plausible (a listed payee, over the per-payment
+//!     cap or the day's budget, up to `approval_max`) isn't refused, it waits. Nothing
+//!     is signed until the owner calls `approve`. The agent reads the signature back
+//!     from `get_held`.
+//!   - A newly added payee can't be paid for `payee_delay_s`, fixed when the rules were
+//!     set. A leaked owner key can't instantly add an attacker and drain the wallet
+//!     through the agent, and the owner has that long to notice.
+//!   - `revoke` cuts the agent off in one call and refuses everything waiting.
+//!
+//! Every decision goes in a short on-chain history (`get_history`), so what the agent
+//! tried can be read from the contract with no indexer, including what was refused.
 
 use near_sdk::json_types::{U128, U64};
 use near_sdk::serde_json::{json, Value};
-use near_sdk::store::IterableSet;
+use near_sdk::store::{IterableMap, IterableSet, LookupMap};
 use near_sdk::{env, near, require, AccountId, Gas, GasWeight, NearToken, PanicOnDefault, PromiseError};
 
 /// Gas kept back for `on_signed`; all the rest of what is attached goes to the MPC (by weight).
@@ -30,6 +44,12 @@ const DAY_NS: u64 = 86_400 * 1_000_000_000;
 /// Longest an authorization may stay valid. The signature is a bearer
 /// instrument until `validBefore`; an hour is plenty for an x402 round trip.
 pub const MAX_VALIDITY_S: u64 = 3_600;
+/// Payments waiting for the owner at once. A stolen agent key can fill this and no more.
+const MOST_WAITING: usize = 10;
+/// Decided payments kept for the agent to read back, oldest dropped first.
+const MOST_HELD: usize = 30;
+/// Decisions kept in `get_history`, oldest dropped first.
+const MOST_HISTORY: usize = 40;
 
 #[near(serializers = [json])]
 pub struct Policy {
@@ -43,6 +63,45 @@ pub struct Policy {
     pub spent_today: U128,
     pub paused: bool,
     pub payees: Vec<String>,
+    pub approval_max: U128,
+    pub payee_delay_s: U64,
+    /// Payees added but not payable yet, with when they become payable (seconds).
+    pub waiting_payees: Vec<(String, U64)>,
+}
+
+/// A payment waiting for the owner, or the record of what they decided.
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct Held {
+    pub id: U64,
+    pub to: String,
+    pub value: U128,
+    pub valid_after: U64,
+    pub valid_before: U64,
+    pub nonce: String,
+    pub why: String,
+    pub asked_at: U64,
+    /// waiting, signing, signed, rejected
+    pub status: String,
+    /// The MPC's answer as JSON, once signed.
+    pub signature: Option<String>,
+}
+
+#[near(serializers = [borsh, json])]
+#[derive(Clone)]
+pub struct Entry {
+    pub at: U64,
+    /// signed, held, refused, approved, rejected, sign_failed, revoked, payee_added, payee_removed, limits_changed, paused, resumed
+    pub what: String,
+    pub to: String,
+    pub value: U128,
+    pub note: String,
+}
+
+enum Verdict {
+    Sign,
+    Hold(&'static str),
+    Refuse(&'static str),
 }
 
 #[near(contract_state)]
@@ -62,6 +121,30 @@ pub struct Allowance {
     spent_today: u128,
     paused: bool,
     /// Allowed payees: lowercase hex, no 0x.
+    payees: IterableSet<String>,
+    approval_max: u128,
+    payee_delay_s: u64,
+    /// When a payee added later becomes payable (seconds). No entry: payable since the start.
+    payee_ready: LookupMap<String, u64>,
+    held: IterableMap<u64, Held>,
+    next_held: u64,
+    history: Vec<Entry>,
+}
+
+/// The contract as deployed before `migrate`.
+#[near(serializers = [borsh])]
+struct AllowanceV1 {
+    owner: AccountId,
+    agent: AccountId,
+    signer: AccountId,
+    path: String,
+    from: [u8; 20],
+    domain_separator: [u8; 32],
+    per_payment_max: u128,
+    daily_limit: u128,
+    spent_day: u64,
+    spent_today: u128,
+    paused: bool,
     payees: IterableSet<String>,
 }
 
@@ -83,6 +166,8 @@ impl Allowance {
         token: Option<String>,
         token_name: Option<String>,
         token_version: Option<String>,
+        approval_max: Option<U128>,
+        payee_delay_s: Option<U64>,
     ) -> Self {
         require!(per_payment_max.0 > 0 && per_payment_max.0 <= daily_limit.0, "per_payment_max must be 1..=daily_limit");
         let mut set = IterableSet::new(b"p");
@@ -107,22 +192,129 @@ impl Allowance {
             spent_today: 0,
             paused: false,
             payees: set,
+            approval_max: approval_max.map(|v| v.0).unwrap_or(1_000_000).max(daily_limit.0),
+            payee_delay_s: payee_delay_s.map(|v| v.0).unwrap_or(86_400),
+            payee_ready: LookupMap::new(b"r"),
+            held: IterableMap::new(b"h"),
+            next_held: 1,
+            history: Vec::new(),
         }
     }
 
-    /// The agent's one power: get a payment signed, within the policy.
+    /// Moves a contract deployed before these rules onto them. Same account, so the same Base address.
+    /// Everyone already on the payee list stays payable.
+    #[private]
+    #[init(ignore_state)]
+    pub fn migrate(approval_max: U128, payee_delay_s: U64) -> Self {
+        let old: AllowanceV1 = env::state_read().unwrap_or_else(|| env::panic_str("nothing to migrate"));
+        require!(approval_max.0 >= old.daily_limit, "approval_max must be at least the daily limit");
+        Self {
+            owner: old.owner,
+            agent: old.agent,
+            signer: old.signer,
+            path: old.path,
+            from: old.from,
+            domain_separator: old.domain_separator,
+            per_payment_max: old.per_payment_max,
+            daily_limit: old.daily_limit,
+            spent_day: old.spent_day,
+            spent_today: old.spent_today,
+            paused: old.paused,
+            payees: old.payees,
+            approval_max: approval_max.0,
+            payee_delay_s: payee_delay_s.0,
+            payee_ready: LookupMap::new(b"r"),
+            held: IterableMap::new(b"h"),
+            next_held: 1,
+            history: Vec::new(),
+        }
+    }
+
+    /// The agent's one power: ask for a payment. Inside the rules it's signed; unusual, it waits for the owner;
+    /// anything else is refused and written down. Answers {"held": id} or {"refused": why} when there's no signature.
     /// Attach at least 1 yoctoNEAR (the MPC's fee, forwarded) and 300 TGas.
     #[payable]
     pub fn pay(&mut self, to: String, value: U128, valid_after: U64, valid_before: U64, nonce: String) {
-        if let Some(why) = self.refusal(&env::predecessor_account_id(), &to, value.0, valid_after.0, valid_before.0) {
-            env::panic_str(why);
+        let (to_bytes, to_key) = hex20(&to);
+        let caller = env::predecessor_account_id();
+        let nonce_bytes = hex32(&nonce);
+        match self.verdict(&caller, &to, value.0, valid_after.0, valid_before.0) {
+            Verdict::Refuse(why) => {
+                // Only the agent's attempts are worth keeping: anyone at all can call this, and must not be able to wash the history out.
+                if caller == self.agent {
+                    self.record("refused", &to_key, value.0, why);
+                }
+                env::value_return(json!({ "refused": why }).to_string().as_bytes());
+            }
+            Verdict::Hold(why) => {
+                let waiting = self.held.values().filter(|h| h.status == "waiting").count();
+                if waiting >= MOST_WAITING {
+                    let why = "too many payments are waiting for the owner";
+                    self.record("refused", &to_key, value.0, why);
+                    env::value_return(json!({ "refused": why }).to_string().as_bytes());
+                    return;
+                }
+                let id = self.next_held;
+                self.next_held += 1;
+                self.held.insert(id, Held { id: U64(id), to: to_key.clone(), value, valid_after, valid_before, nonce, why: why.to_string(), asked_at: U64(now_s()), status: "waiting".to_string(), signature: None });
+                self.prune_held();
+                self.record("held", &to_key, value.0, why);
+                env::value_return(json!({ "held": U64(id) }).to_string().as_bytes());
+            }
+            Verdict::Sign => {
+                self.roll_day();
+                // Counted now, before the signature exists; given back if signing fails (on_signed).
+                self.spent_today += value.0;
+                self.record("signed", &to_key, value.0, "");
+                let digest = self.digest(&to_bytes, value.0, valid_after.0, valid_before.0, &nonce_bytes);
+                self.request_signature(digest, value.0)
+            }
         }
-        let (to_bytes, _) = hex20(&to);
-        self.roll_day();
-        // Counted now, before the signature exists; given back if signing fails (on_signed).
-        self.spent_today += value.0;
-        let digest = self.digest(&to_bytes, value.0, valid_after.0, valid_before.0, &hex32(&nonce));
-        self.request_signature(digest, value.0)
+    }
+
+    /// The owner says yes to a waiting payment. The 1 yoctoNEAR means a limited key can't do it, only a full-access one.
+    /// It doesn't count against the agent's budget: it's the owner's own decision.
+    #[payable]
+    pub fn approve(&mut self, id: U64) {
+        self.only_owner();
+        require!(env::attached_deposit() >= NearToken::from_yoctonear(1), "attach at least 1 yoctoNEAR");
+        let mut h = self.held.get(&id.0).cloned().unwrap_or_else(|| env::panic_str("no such payment"));
+        require!(h.status == "waiting", "that payment isn't waiting");
+        require!(h.valid_before.0 > now_s(), "that payment's authorization has expired");
+        let digest = self.digest(&hex20(&h.to).0, h.value.0, h.valid_after.0, h.valid_before.0, &hex32(&h.nonce));
+        h.status = "signing".to_string();
+        self.record("approved", &h.to, h.value.0, "");
+        self.held.insert(id.0, h);
+        self.request_held_signature(digest, id.0)
+    }
+
+    #[payable]
+    pub fn reject(&mut self, id: U64) {
+        self.only_owner();
+        require!(env::attached_deposit() >= NearToken::from_yoctonear(1), "attach at least 1 yoctoNEAR");
+        let mut h = self.held.get(&id.0).cloned().unwrap_or_else(|| env::panic_str("no such payment"));
+        require!(h.status == "waiting", "that payment isn't waiting");
+        h.status = "rejected".to_string();
+        self.record("rejected", &h.to, h.value.0, "");
+        self.held.insert(id.0, h);
+    }
+
+    /// Cuts the agent off in one call: nobody can pay, and everything waiting is refused.
+    /// To carry on: `set_agent` with a new account, then `set_paused(false)`.
+    #[payable]
+    pub fn revoke(&mut self) {
+        self.only_owner();
+        require!(env::attached_deposit() >= NearToken::from_yoctonear(1), "attach at least 1 yoctoNEAR");
+        self.paused = true;
+        // This contract never calls itself as the agent, so nobody can pay as this account.
+        self.agent = env::current_account_id();
+        let waiting: Vec<u64> = self.held.iter().filter(|(_, h)| h.status == "waiting").map(|(k, _)| *k).collect();
+        for id in waiting {
+            if let Some(h) = self.held.get_mut(&id) {
+                h.status = "rejected".to_string();
+            }
+        }
+        self.record("revoked", "", 0, "");
     }
 
     /// The owner moves funds out without the agent's limits (any payee, any amount).
@@ -134,6 +326,23 @@ impl Allowance {
     }
 
     #[private]
+    pub fn on_held_signed(&mut self, #[callback_result] result: Result<Value, PromiseError>, id: U64) {
+        let Some(mut h) = self.held.get(&id.0).cloned() else { return };
+        match result {
+            Ok(sig) => {
+                h.status = "signed".to_string();
+                h.signature = Some(sig.to_string());
+            }
+            Err(_) => {
+                // The owner said yes and the network didn't answer: it waits again, for another try.
+                h.status = "waiting".to_string();
+                self.record("sign_failed", &h.to, h.value.0, "");
+            }
+        }
+        self.held.insert(id.0, h);
+    }
+
+    #[private]
     pub fn on_signed(&mut self, #[callback_result] result: Result<Value, PromiseError>, day: U64, value: U128) -> Option<Value> {
         match result {
             Ok(sig) => Some(sig),
@@ -142,6 +351,7 @@ impl Allowance {
                 if day.0 == self.spent_day {
                     self.spent_today = self.spent_today.saturating_sub(value.0);
                 }
+                self.record("sign_failed", "", value.0, "");
                 None
             }
         }
@@ -152,6 +362,7 @@ impl Allowance {
     pub fn set_paused(&mut self, paused: bool) {
         self.only_owner();
         self.paused = paused;
+        self.record(if paused { "paused" } else { "resumed" }, "", 0, "");
     }
     /// Rotate the agent account — e.g. after its key may have leaked.
     pub fn set_agent(&mut self, agent: AccountId) {
@@ -161,16 +372,26 @@ impl Allowance {
     pub fn set_limits(&mut self, per_payment_max: U128, daily_limit: U128) {
         self.only_owner();
         require!(per_payment_max.0 > 0 && per_payment_max.0 <= daily_limit.0, "per_payment_max must be 1..=daily_limit");
+        require!(daily_limit.0 <= self.approval_max, "daily_limit can't pass approval_max");
         self.per_payment_max = per_payment_max.0;
         self.daily_limit = daily_limit.0;
+        self.record("limits_changed", "", 0, "");
     }
     pub fn add_payee(&mut self, payee: String) {
         self.only_owner();
-        self.payees.insert(hex20(&payee).1);
+        let key = hex20(&payee).1;
+        // Already payable stays payable: only someone new has to wait.
+        if self.payees.insert(key.clone()) {
+            self.payee_ready.insert(key.clone(), now_s() + self.payee_delay_s);
+            self.record("payee_added", &key, 0, "");
+        }
     }
     pub fn remove_payee(&mut self, payee: String) {
         self.only_owner();
-        self.payees.remove(&hex20(&payee).1);
+        let key = hex20(&payee).1;
+        self.payees.remove(&key);
+        self.payee_ready.remove(&key);
+        self.record("payee_removed", &key, 0, "");
     }
 
     // ── views ────────────────────────────────────────────────────────────────
@@ -188,16 +409,40 @@ impl Allowance {
             spent_today: U128(if self.spent_day == today { self.spent_today } else { 0 }),
             paused: self.paused,
             payees: self.payees.iter().map(|p| format!("0x{p}")).collect(),
+            approval_max: U128(self.approval_max),
+            payee_delay_s: U64(self.payee_delay_s),
+            waiting_payees: self.payees.iter().filter_map(|p| self.payee_ready.get(p).filter(|at| **at > now_s()).map(|at| (format!("0x{p}"), U64(*at)))).collect(),
         }
+    }
+
+    /// Newest first.
+    pub fn get_history(&self) -> Vec<Entry> {
+        self.history.iter().rev().cloned().collect()
+    }
+
+    pub fn get_held(&self, id: U64) -> Option<Held> {
+        self.held.get(&id.0).cloned()
+    }
+
+    /// Newest first: what's waiting, and what was decided lately.
+    pub fn list_held(&self) -> Vec<Held> {
+        let mut all: Vec<Held> = self.held.values().cloned().collect();
+        all.sort_by_key(|h| std::cmp::Reverse(h.id.0));
+        all
     }
 
     /// The digest `pay` would ask the MPC to sign, so a client can check it matches its own.
     /// The same rules `pay` enforces, as a free view: None = it would be signed, else why not.
     /// Clients ask this first (2026-10-29), so a refused payment costs no gas and no
     /// transaction — it took 11.6 s on mainnet to learn a refusal from `pay` itself.
+    /// A payment that would wait for the owner answers "held: why", so a client can tell it from a refusal.
     /// Advisory only: `pay` re-checks everything on chain.
     pub fn check(&self, agent: AccountId, to: String, value: U128, valid_after: U64, valid_before: U64) -> Option<String> {
-        self.refusal(&agent, &to, value.0, valid_after.0, valid_before.0).map(str::to_string)
+        match self.verdict(&agent, &to, value.0, valid_after.0, valid_before.0) {
+            Verdict::Sign => None,
+            Verdict::Hold(why) => Some(format!("held: {why}")),
+            Verdict::Refuse(why) => Some(why.to_string()),
+        }
     }
 
     pub fn preview_digest(&self, to: String, value: U128, valid_after: U64, valid_before: U64, nonce: String) -> String {
@@ -212,25 +457,53 @@ impl Allowance {
 
     /// Every rule of the policy, in one place for `pay` and `check`. Reads the day's spend
     /// as `roll_day` would leave it, without writing.
-    fn refusal(&self, caller: &AccountId, to: &str, value: u128, valid_after: u64, valid_before: u64) -> Option<&'static str> {
-        let now_s = env::block_timestamp() / 1_000_000_000;
+    fn verdict(&self, caller: &AccountId, to: &str, value: u128, valid_after: u64, valid_before: u64) -> Verdict {
+        let now = now_s();
         let spent = if env::block_timestamp() / DAY_NS == self.spent_day { self.spent_today } else { 0 };
+        let key = hex20(to).1;
         if self.paused {
-            Some("paused by the owner")
+            Verdict::Refuse("paused by the owner")
         } else if *caller != self.agent {
-            Some("only the agent account may pay")
-        } else if !self.payees.contains(&hex20(to).1) {
-            Some("payee is not on the owner's list")
-        } else if value == 0 || value > self.per_payment_max {
-            Some("amount is over the per-payment limit")
-        } else if valid_before <= now_s || valid_before > now_s + MAX_VALIDITY_S {
-            Some("valid_before must be within the next hour")
+            Verdict::Refuse("only the agent account may pay")
+        } else if !self.payees.contains(&key) {
+            Verdict::Refuse("payee is not on the owner's list")
+        } else if self.payee_ready.get(&key).is_some_and(|at| *at > now) {
+            Verdict::Refuse("this payee was added recently and can't be paid yet")
+        } else if value == 0 {
+            Verdict::Refuse("amount must be more than zero")
+        } else if value > self.approval_max {
+            Verdict::Refuse("amount is more than the owner can approve")
+        } else if valid_before <= now || valid_before > now + MAX_VALIDITY_S {
+            Verdict::Refuse("valid_before must be within the next hour")
         } else if valid_after >= valid_before {
-            Some("valid_after must be before valid_before")
+            Verdict::Refuse("valid_after must be before valid_before")
+        } else if value > self.per_payment_max {
+            Verdict::Hold("over the per-payment limit")
         } else if spent + value > self.daily_limit {
-            Some("daily limit reached")
+            Verdict::Hold("over the daily limit")
         } else {
-            None
+            Verdict::Sign
+        }
+    }
+
+    fn record(&mut self, what: &str, to: &str, value: u128, note: &str) {
+        if self.history.len() >= MOST_HISTORY {
+            self.history.remove(0);
+        }
+        let to = if to.is_empty() { String::new() } else { format!("0x{to}") };
+        self.history.push(Entry { at: U64(now_s()), what: what.to_string(), to, value: U128(value), note: note.to_string() });
+    }
+
+    /// Drops the oldest decided payments once there are too many. Anything still waiting stays.
+    fn prune_held(&mut self) {
+        while self.held.len() as usize > MOST_HELD {
+            let oldest = self.held.iter().filter(|(_, h)| h.status == "signed" || h.status == "rejected").map(|(k, _)| *k).min();
+            match oldest {
+                Some(id) => {
+                    self.held.remove(&id);
+                }
+                None => break,
+            }
         }
     }
 
@@ -247,6 +520,15 @@ impl Allowance {
     }
 
     fn request_signature(&mut self, digest: [u8; 32], value: u128) {
+        let callback_args = json!({ "day": U64(self.spent_day), "value": U128(value) });
+        self.sign_then(digest, "on_signed", callback_args)
+    }
+
+    fn request_held_signature(&mut self, digest: [u8; 32], id: u64) {
+        self.sign_then(digest, "on_held_signed", json!({ "id": U64(id) }))
+    }
+
+    fn sign_then(&mut self, digest: [u8; 32], callback_name: &str, callback_args: Value) {
         require!(env::attached_deposit() >= NearToken::from_yoctonear(1), "attach at least 1 yoctoNEAR for the MPC fee");
         let args = json!({ "request": { "payload_v2": { "Ecdsa": hex::encode(digest) }, "path": self.path, "domain_id": 0 } });
         // Low-level promise calls on purpose (2026-10-29): near-sdk 5.30's `Promise` builder links
@@ -258,10 +540,13 @@ impl Allowance {
         // the callback's fixed share — no hand arithmetic to get wrong.
         env::promise_batch_action_function_call_weight(sign, "sign", args.to_string().as_bytes(), env::attached_deposit(), Gas::from_gas(0), GasWeight(1));
         let callback = env::promise_batch_then(sign, &env::current_account_id());
-        let callback_args = json!({ "day": U64(self.spent_day), "value": U128(value) });
-        env::promise_batch_action_function_call(callback, "on_signed", callback_args.to_string().as_bytes(), NearToken::from_yoctonear(0), CALLBACK_GAS);
+        env::promise_batch_action_function_call(callback, callback_name, callback_args.to_string().as_bytes(), NearToken::from_yoctonear(0), CALLBACK_GAS);
         env::promise_return(callback);
     }
+}
+
+fn now_s() -> u64 {
+    env::block_timestamp() / 1_000_000_000
 }
 
 // ── EIP-712, exactly as USDC's transferWithAuthorization verifies it ─────────
@@ -349,7 +634,7 @@ mod tests {
 
     fn contract() -> Allowance {
         ctx(accounts(0), 1_700_000_000);
-        Allowance::new(accounts(0), accounts(1), "v1.signer".parse().unwrap(), "gliana-x402".into(), FROM.into(), U128(10_000), U128(25_000), vec![GLIANA.into()], None, None, None, None)
+        Allowance::new(accounts(0), accounts(1), "v1.signer".parse().unwrap(), "gliana-x402".into(), FROM.into(), U128(10_000), U128(25_000), vec![GLIANA.into()], None, None, None, None, Some(U128(1_000_000)), Some(U64(86_400)))
     }
 
     /// Reference values computed with viem's hashDomain / hashTypedData — the same
@@ -380,49 +665,207 @@ mod tests {
         let ok = |c: &Allowance, to: &str, v: u128| c.check(accounts(1), to.into(), U128(v), U64(1_699_999_940), U64(1_700_000_600));
         assert_eq!(ok(&c, GLIANA, 2000), None);
         assert_eq!(ok(&c, "0x000000000000000000000000000000000000dEaD", 2000).as_deref(), Some("payee is not on the owner's list"));
-        assert_eq!(ok(&c, GLIANA, 10_001).as_deref(), Some("amount is over the per-payment limit"));
+        assert_eq!(ok(&c, GLIANA, 10_001).as_deref(), Some("held: over the per-payment limit"));
+        assert_eq!(ok(&c, GLIANA, 1_000_001).as_deref(), Some("amount is more than the owner can approve"));
         assert_eq!(c.check(accounts(2), GLIANA.into(), U128(2000), U64(1_699_999_940), U64(1_700_000_600)).as_deref(), Some("only the agent account may pay"));
         assert_eq!(c.check(accounts(1), GLIANA.into(), U128(2000), U64(1_699_999_940), U64(1_700_000_000 + 7200)).as_deref(), Some("valid_before must be within the next hour"));
         let _ = c.pay(GLIANA.into(), U128(10_000), U64(1_699_999_940), U64(1_700_000_600), NONCE.into());
         let _ = c.pay(GLIANA.into(), U128(10_000), U64(1_699_999_940), U64(1_700_000_600), NONCE.into());
-        assert_eq!(ok(&c, GLIANA, 10_000).as_deref(), Some("daily limit reached"));
+        assert_eq!(ok(&c, GLIANA, 10_000).as_deref(), Some("held: over the daily limit"));
         // The next day the spend reads as zero, though nothing has written the roll yet.
         ctx(accounts(1), 1_700_000_000 + 86_400);
         assert_eq!(c.check(accounts(1), GLIANA.into(), U128(10_000), U64(1_700_086_340), U64(1_700_087_000)), None);
     }
 
+    const LATER: u64 = 1_700_000_600;
+    fn ask(c: &mut Allowance, to: &str, value: u128) {
+        c.pay(to.into(), U128(value), U64(1_699_999_940), U64(LATER), NONCE.into());
+    }
+    fn last(c: &Allowance) -> (String, String) {
+        let h = c.get_history();
+        (h[0].what.clone(), h[0].note.clone())
+    }
+
     #[test]
-    #[should_panic(expected = "only the agent account may pay")]
-    fn nobody_else_can_pay() {
+    fn nobody_else_can_pay_and_cant_write_in_the_history() {
         let mut c = contract();
         ctx(accounts(2), 1_700_000_000);
-        let _ = c.pay(GLIANA.into(), U128(2000), U64(1_699_999_940), U64(1_700_000_600), NONCE.into());
+        ask(&mut c, GLIANA, 2000);
+        assert_eq!(c.get_policy().spent_today, U128(0));
+        assert!(c.get_history().is_empty());
     }
 
     #[test]
-    #[should_panic(expected = "payee is not on the owner's list")]
-    fn an_unlisted_payee_is_refused() {
+    fn an_unlisted_payee_is_refused_and_written_down() {
         let mut c = contract();
         ctx(accounts(1), 1_700_000_000);
-        let _ = c.pay("0x000000000000000000000000000000000000dEaD".into(), U128(2000), U64(1_699_999_940), U64(1_700_000_600), NONCE.into());
+        ask(&mut c, "0x000000000000000000000000000000000000dEaD", 2000);
+        assert_eq!(last(&c), ("refused".to_string(), "payee is not on the owner's list".to_string()));
+        assert_eq!(c.get_policy().spent_today, U128(0));
+        assert!(c.list_held().is_empty());
     }
 
     #[test]
-    #[should_panic(expected = "amount is over the per-payment limit")]
-    fn one_payment_cannot_exceed_the_cap() {
+    fn over_the_cap_waits_for_the_owner_and_nothing_is_counted() {
         let mut c = contract();
         ctx(accounts(1), 1_700_000_000);
-        let _ = c.pay(GLIANA.into(), U128(10_001), U64(1_699_999_940), U64(1_700_000_600), NONCE.into());
+        ask(&mut c, GLIANA, 10_001);
+        let h = c.get_held(U64(1)).unwrap();
+        assert_eq!(h.status, "waiting");
+        assert_eq!(h.signature, None);
+        assert_eq!(c.get_policy().spent_today, U128(0));
     }
 
     #[test]
-    #[should_panic(expected = "daily limit reached")]
-    fn the_day_cannot_exceed_the_budget() {
+    fn over_what_the_owner_can_approve_is_refused_outright() {
         let mut c = contract();
         ctx(accounts(1), 1_700_000_000);
-        for _ in 0..3 {
-            let _ = c.pay(GLIANA.into(), U128(10_000), U64(1_699_999_940), U64(1_700_000_600), NONCE.into());
+        ask(&mut c, GLIANA, 1_000_001);
+        assert_eq!(last(&c).0, "refused");
+        assert!(c.list_held().is_empty());
+    }
+
+    #[test]
+    fn the_day_cannot_exceed_the_budget_without_the_owner() {
+        let mut c = contract();
+        ctx(accounts(1), 1_700_000_000);
+        for _ in 0..2 {
+            ask(&mut c, GLIANA, 10_000);
         }
+        ask(&mut c, GLIANA, 10_000);
+        assert_eq!(c.get_policy().spent_today, U128(20_000));
+        assert_eq!(c.get_held(U64(1)).unwrap().why, "over the daily limit");
+    }
+
+    #[test]
+    fn approving_signs_it_and_the_agent_reads_the_signature_back() {
+        let mut c = contract();
+        ctx(accounts(1), 1_700_000_000);
+        ask(&mut c, GLIANA, 20_000);
+        ctx(accounts(0), 1_700_000_100);
+        c.approve(U64(1));
+        assert_eq!(c.get_held(U64(1)).unwrap().status, "signing");
+        c.on_held_signed(Ok(json!({ "s": { "scalar": "ab" } })), U64(1));
+        let h = c.get_held(U64(1)).unwrap();
+        assert_eq!(h.status, "signed");
+        assert!(h.signature.unwrap().contains("ab"));
+        assert_eq!(c.get_policy().spent_today, U128(0));
+    }
+
+    #[test]
+    fn a_failed_signature_goes_back_to_waiting() {
+        let mut c = contract();
+        ctx(accounts(1), 1_700_000_000);
+        ask(&mut c, GLIANA, 20_000);
+        ctx(accounts(0), 1_700_000_100);
+        c.approve(U64(1));
+        c.on_held_signed(Err(PromiseError::Failed), U64(1));
+        assert_eq!(c.get_held(U64(1)).unwrap().status, "waiting");
+    }
+
+    #[test]
+    #[should_panic(expected = "only the owner")]
+    fn the_agent_cannot_approve_its_own_payment() {
+        let mut c = contract();
+        ctx(accounts(1), 1_700_000_000);
+        ask(&mut c, GLIANA, 20_000);
+        c.approve(U64(1));
+    }
+
+    #[test]
+    #[should_panic(expected = "authorization has expired")]
+    fn an_expired_payment_cannot_be_approved() {
+        let mut c = contract();
+        ctx(accounts(1), 1_700_000_000);
+        ask(&mut c, GLIANA, 20_000);
+        ctx(accounts(0), LATER + 1);
+        c.approve(U64(1));
+    }
+
+    #[test]
+    #[should_panic(expected = "isn't waiting")]
+    fn a_rejected_payment_stays_rejected() {
+        let mut c = contract();
+        ctx(accounts(1), 1_700_000_000);
+        ask(&mut c, GLIANA, 20_000);
+        ctx(accounts(0), 1_700_000_100);
+        c.reject(U64(1));
+        assert_eq!(c.get_held(U64(1)).unwrap().status, "rejected");
+        c.approve(U64(1));
+    }
+
+    #[test]
+    fn a_stolen_key_can_only_fill_the_queue_so_far() {
+        let mut c = contract();
+        ctx(accounts(1), 1_700_000_000);
+        for _ in 0..(MOST_WAITING + 3) {
+            ask(&mut c, GLIANA, 20_000);
+        }
+        assert_eq!(c.list_held().len(), MOST_WAITING);
+        assert_eq!(last(&c).1, "too many payments are waiting for the owner");
+    }
+
+    #[test]
+    fn a_new_payee_waits_a_day_and_an_old_one_doesnt() {
+        const NEW: &str = "0x1111111111111111111111111111111111111111";
+        let mut c = contract();
+        ctx(accounts(0), 1_700_000_000);
+        c.add_payee(NEW.into());
+        c.add_payee(GLIANA.into());
+        assert_eq!(c.get_policy().waiting_payees.len(), 1);
+        ctx(accounts(1), 1_700_000_000);
+        ask(&mut c, NEW, 2000);
+        assert_eq!(last(&c).1, "this payee was added recently and can't be paid yet");
+        ask(&mut c, GLIANA, 2000);
+        assert_eq!(last(&c).0, "signed");
+        ctx(accounts(1), 1_700_000_000 + 86_401);
+        assert_eq!(c.check(accounts(1), NEW.into(), U128(2000), U64(1_700_086_340), U64(1_700_087_000)), None);
+        assert!(c.get_policy().waiting_payees.is_empty());
+    }
+
+    #[test]
+    fn removing_and_adding_a_payee_back_restarts_its_wait() {
+        let mut c = contract();
+        ctx(accounts(0), 1_700_000_000);
+        c.remove_payee(GLIANA.into());
+        c.add_payee(GLIANA.into());
+        assert_eq!(c.get_policy().waiting_payees.len(), 1);
+    }
+
+    #[test]
+    fn revoking_cuts_the_agent_off_and_refuses_what_was_waiting() {
+        let mut c = contract();
+        ctx(accounts(1), 1_700_000_000);
+        ask(&mut c, GLIANA, 20_000);
+        ctx(accounts(0), 1_700_000_100);
+        c.revoke();
+        assert_eq!(c.get_held(U64(1)).unwrap().status, "rejected");
+        ctx(accounts(1), 1_700_000_200);
+        ask(&mut c, GLIANA, 2000);
+        assert_eq!(c.get_policy().spent_today, U128(0));
+        assert!(c.get_policy().paused);
+        // Coming back takes a new agent as well as unpausing, so the leaked key stays useless.
+        ctx(accounts(0), 1_700_000_300);
+        c.set_paused(false);
+        assert_eq!(c.check(accounts(1), GLIANA.into(), U128(2000), U64(1_700_000_000), U64(1_700_000_900)).as_deref(), Some("only the agent account may pay"));
+    }
+
+    #[test]
+    #[should_panic(expected = "only the owner")]
+    fn the_agent_cannot_revoke_or_unrevoke() {
+        let mut c = contract();
+        ctx(accounts(1), 1_700_000_000);
+        c.revoke();
+    }
+
+    #[test]
+    fn the_history_stays_short() {
+        let mut c = contract();
+        ctx(accounts(1), 1_700_000_000);
+        for _ in 0..(MOST_HISTORY + 5) {
+            ask(&mut c, "0x000000000000000000000000000000000000dEaD", 2000);
+        }
+        assert_eq!(c.get_history().len(), MOST_HISTORY);
     }
 
     #[test]
@@ -440,21 +883,21 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "valid_before must be within the next hour")]
     fn no_long_lived_signature() {
         let mut c = contract();
         ctx(accounts(1), 1_700_000_000);
-        let _ = c.pay(GLIANA.into(), U128(2000), U64(1_699_999_940), U64(1_700_000_000 + 7_200), NONCE.into());
+        c.pay(GLIANA.into(), U128(2000), U64(1_699_999_940), U64(1_700_000_000 + 7_200), NONCE.into());
+        assert_eq!(last(&c).1, "valid_before must be within the next hour");
     }
 
     #[test]
-    #[should_panic(expected = "paused by the owner")]
     fn the_owner_can_pause_it() {
         let mut c = contract();
         ctx(accounts(0), 1_700_000_000);
         c.set_paused(true);
         ctx(accounts(1), 1_700_000_000);
-        let _ = c.pay(GLIANA.into(), U128(2000), U64(1_699_999_940), U64(1_700_000_600), NONCE.into());
+        ask(&mut c, GLIANA, 2000);
+        assert_eq!(last(&c).1, "paused by the owner");
     }
 
     #[test]
