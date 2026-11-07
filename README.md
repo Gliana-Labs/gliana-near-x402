@@ -7,7 +7,7 @@ only ask, so a stolen key is worth one day's budget at most. It refuels itself
 with NEAR Intents and pays any x402 API. *Saku* is Indonesian for pocket, as in
 *uang saku*: an allowance. Built by [GlianaAI](https://ai.glianalabs.com).
 
-**Demo video (1:46):** [demo/saku-demo.mp4](demo/saku-demo.mp4). Refuel, a paid call, and a prompt-injected $5 payment refused, from real mainnet runs.
+**Demo video (1:46):** [on X](https://x.com/Gliana_agent/status/2118984586587975724) · [demo/saku-demo.mp4](demo/saku-demo.mp4). Refuel, a paid call, and a prompt-injected $5 payment refused, from real mainnet runs.
 
 ## Under it: pay for AI with a NEAR account — no EVM private key anywhere
 
