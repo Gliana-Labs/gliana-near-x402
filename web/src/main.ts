@@ -32,7 +32,7 @@ const GAS = '300000000000000';
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 const esc = (s: unknown) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const usd = (micro: string | number) => `$${(Number(micro) / 1e6).toFixed(3)}`;
-const short = (a: string) => (a.length > 16 ? `${a.slice(0, 8)}…${a.slice(-6)}` : a);
+const short = (a: string, most = 16) => (a.length > most ? `${a.slice(0, most - 9)}…${a.slice(-8)}` : a);
 const when = (s: string) => new Date(Number(s) * 1000).toLocaleString();
 
 /** Sellers worth naming. Anything else shows as its address. */
@@ -112,7 +112,7 @@ function header(owner?: string) {
 }
 
 /** What the contract itself just said to a pretend payment. Anyone can ask, because `check` is a free view. */
-let tried: { label: string; answer: string | null } | null = null;
+let tried: { kind: string; label: string; answer: string | null } | null = null;
 async function tryPayment(p: Policy, kind: string) {
   const now = Math.floor(Date.now() / 1000);
   const seller = p.payees[0];
@@ -123,12 +123,14 @@ async function tryPayment(p: Policy, kind: string) {
   };
   const [label, to, value] = asks[kind];
   const answer = await view<string | null>('check', { agent: p.agent, to, value, valid_after: String(now - 60), valid_before: String(now + 600) });
-  tried = { label, answer };
-  lastOk = '';
+  tried = { kind, label, answer };
   await refresh();
 }
 
 let lastOk = '';
+let lastGate = '';
+let lastAsk = '';
+let triedOnLoad = false;
 async function refresh() {
   try {
     const policy = await view<Policy>('get_policy');
@@ -149,49 +151,51 @@ async function refresh() {
     const off = revoked || policy.paused;
     const left = Math.max(0, daily - spent);
     const history2 = history.filter((e) => e.what !== 'held' || !waiting.some((h) => h.to === e.to.replace(/^0x/, '') && h.value === e.value && h.asked_at === e.at));
-    const html = `
-      ${upgraded ? '' : '<div class="note-bar">This contract was deployed before approvals, new-seller waits and history. It still enforces its budget, shown below.</div>'}
-      <section class="hero" aria-label="Today's budget">
-        <div>
-          <p class="hero-say">${revoked ? 'This agent has been cut off. The money is still in the wallet, and nothing can be signed for it.' : policy.paused ? 'Paused by the owner. Nothing can be signed until it’s resumed.' : 'This AI agent spends real money and holds no key that can move it. A NEAR contract signs for it, only within these limits.'}</p>
-          <div class="hero-spent"><strong>${usd(spent)}</strong><span>spent of ${usd(daily)} today</span></div>
-          <div class="cells" role="img" aria-label="${usd(spent)} of ${usd(daily)} spent">${Array.from({ length: cells }, (_, n) => `<i style="--fill:${Math.max(0, Math.min(1, spent / (daily / cells) - n)) * 100}%"></i>`).join('')}</div>
-          <p class="cells-say">${usd(left)} left today. Each block is ${usd(daily / cells)}.</p>
-        </div>
-        <dl class="facts">
-          <div><dt>Status</dt><dd class="state ${off ? 'off' : 'on'}">${revoked ? 'Revoked' : policy.paused ? 'Paused' : 'Active'}</dd></div>
-          ${usdc === null ? '' : `<div><dt>In the wallet</dt><dd class="money">$${usdc.toFixed(3)} USDC</dd></div>`}
-          <div><dt>Signs on its own up to</dt><dd class="money">${usd(cap)}</dd></div>
-          ${upgraded ? `<div><dt>Owner can approve up to</dt><dd class="money">${usd(policy.approval_max!)}</dd></div>` : ''}
-        </dl>
+    // The page's one idea, played out: press a payment, and watch how far it gets.
+    const outcome = !tried ? '' : !tried.answer ? 'signed' : tried.answer.startsWith('held:') ? 'held' : 'refused';
+    const answerLine = !tried ? 'Press one. The live contract answers, and nothing is sent.' : outcome === 'signed' ? 'Inside the rules, so NEAR’s MPC would sign it and the wallet would pay.' : outcome === 'held' ? `Nothing is signed until the owner approves: ${esc(tried.answer!.replace('held: ', ''))}.` : `The contract’s own answer: “${esc(tried.answer)}”. Nothing was signed.`;
+    const gateHtml = `
+      <section class="pitch">
+        <h1>Give an AI agent a budget, <em>not a key.</em></h1>
+        <p class="pitch-say">The agent holds no key that can move money. A NEAR contract owns its wallet on Base, and signs only within the owner’s rules. A stolen agent key is worth one day’s budget.</p>
       </section>
-
-      ${waiting.length ? `<section class="ask" aria-label="Waiting for the owner">
+      <section class="gate" data-outcome="${outcome}" aria-label="Who can move the money">
+        ${upgraded && !revoked ? `<div class="gate-head">
+          <h2>Try to break it</h2>
+          <div class="try-buttons">
+            <button class="stop ${tried?.kind === 'attack' ? 'pressed' : ''}" data-try="attack">Send $5 to an attacker</button>
+            <button class="ghost ${tried?.kind === 'unusual' ? 'pressed' : ''}" data-try="unusual">$0.018, over the limit</button>
+            <button class="ghost ${tried?.kind === 'normal' ? 'pressed' : ''}" data-try="normal">$0.002, inside the rules</button>
+          </div>
+        </div>` : ''}
+        <ol class="path">
+          <li><b>Agent</b><span class="does">${revoked ? 'cut off' : 'can only ask'}</span><span class="who-is" title="${esc(policy.agent)}">${revoked ? 'no agent' : esc(short(policy.agent, 24))}</span></li>
+          <li class="the-gate"><b>Contract</b><span class="does">${outcome === 'held' ? 'waits for the owner' : outcome === 'refused' ? 'stops it here' : 'checks the owner’s rules'}</span><span class="who-is"><a href="${EXPLORER}/address/${esc(contract)}" title="${esc(contract)}">${esc(short(contract, 24))}</a></span></li>
+          <li><b>NEAR MPC</b><span class="does">11 of 17 nodes sign</span><span class="who-is">${esc(policy.signer)}</span></li>
+          <li><b>Base wallet</b><span class="does">pays any x402 seller</span><span class="who-is"><a href="https://basescan.org/address/${esc(policy.from)}">${esc(short(policy.from))}</a></span></li>
+        </ol>
+        ${upgraded && !revoked ? `<div class="verdict" role="status">${tried ? `<span class="big-stamp ${outcome}">${outcome === 'signed' ? 'Would sign' : outcome === 'held' ? 'Held' : 'Refused'}</span>` : ''}<p><b>${tried ? esc(tried.label) : ''}</b> ${answerLine}</p></div>` : ''}
+      </section>`;
+    const askHtml = waiting.length ? `<section class="ask" aria-label="Waiting for the owner">
         <h2>${waiting.length === 1 ? 'A payment is' : `${waiting.length} payments are`} waiting for the owner</h2>
         <p class="quiet" style="font-size:14px">Nothing is signed until the owner decides.${owner ? '' : ' Connect the owner’s wallet to decide.'}</p>
         ${waiting.map((h) => `<div class="ask-row"><div><span class="ask-amount">${usd(h.value)}</span> to ${baseLink(`0x${h.to}`)}<div class="faint" style="font-size:13px">${esc(h.why)} · expires ${esc(until(h.valid_before))}</div></div><div class="ask-buttons"><button class="go" data-act="approve" data-id="${esc(h.id)}" ${owner ? '' : 'disabled'}>Approve</button><button class="ghost" data-act="reject" data-id="${esc(h.id)}" ${owner ? '' : 'disabled'}>Reject</button></div></div>`).join('')}
-      </section>` : ''}
-
-      ${upgraded && !revoked ? `<section class="sheet tryit">
-        <h2>Try to break it</h2>
-        <p class="quiet">Ask this contract, live on ${network}, what it would do. No wallet needed, and nothing is sent.</p>
-        <div class="try-buttons">
-          <button class="stop" data-try="attack">Send $5 to an attacker</button>
-          <button class="ghost" data-try="unusual">$0.018, over the limit</button>
-          <button class="ghost" data-try="normal">$0.002, inside the rules</button>
+      </section>` : '';
+    const html = `
+      ${upgraded ? '' : '<div class="note-bar">This contract was deployed before approvals, new-seller waits and history. It still enforces its budget, shown below.</div>'}
+      <section class="today" aria-label="Today's budget">
+        <div class="today-money">
+          <h2>Spent today</h2>
+          <div class="hero-spent"><strong>${usd(spent)}</strong><span>of ${usd(daily)}</span></div>
+          <div class="cells" role="img" aria-label="${usd(spent)} of ${usd(daily)} spent">${Array.from({ length: cells }, (_, n) => `<i style="--fill:${Math.max(0, Math.min(1, spent / (daily / cells) - n)) * 100}%"></i>`).join('')}</div>
+          <p class="cells-say">${usd(left)} left. Each block is ${usd(daily / cells)}.</p>
         </div>
-        ${tried ? (() => {
-          const a = tried.answer;
-          const held = a?.startsWith('held:');
-          return `<div class="try-answer" role="status"><span class="stamp ${!a ? 'ok' : held ? 'wait' : 'bad'}">${!a ? 'Would sign' : held ? 'Would hold' : 'Refused'}</span> <span>${esc(tried.label)}</span><span class="why">${!a ? 'Inside the rules, so NEAR’s MPC would sign it.' : held ? `Nothing is signed until the owner approves: ${esc(a!.replace('held: ', ''))}.` : `The contract’s own answer: “${esc(a)}”.`}</span></div>`;
-        })() : ''}
-      </section>` : ''}
-
-      <section class="path" aria-label="Who can move the money">
-        <div><b>Agent</b><span class="does">${revoked ? 'cut off' : 'can only ask'}</span><span class="who-is">${revoked ? 'no agent' : esc(policy.agent)}</span></div>
-        <div class="rules-here"><b>Contract</b><span class="does">checks the owner’s rules</span><span class="who-is"><a href="${EXPLORER}/address/${esc(contract)}">${esc(contract)}</a></span></div>
-        <div><b>NEAR MPC</b><span class="does">11 of 17 nodes sign</span><span class="who-is">${esc(policy.signer)}</span></div>
-        <div><b>Base wallet</b><span class="does">pays any x402 seller</span><span class="who-is"><a href="https://basescan.org/address/${esc(policy.from)}">${esc(short(policy.from))}</a></span></div>
+        <dl class="facts">
+          <div><dt>Status</dt><dd class="state ${off ? 'off' : 'on'}">${revoked ? 'Revoked' : policy.paused ? 'Paused' : 'Active'}</dd></div>
+          ${usdc === null ? '' : `<div><dt>In the wallet</dt><dd class="money">$${usdc.toFixed(3)}</dd></div>`}
+          <div><dt>Signs on its own up to</dt><dd class="money">${usd(cap)}</dd></div>
+          ${upgraded ? `<div><dt>Owner can approve up to</dt><dd class="money">${usd(policy.approval_max!)}</dd></div>` : ''}
+        </dl>
       </section>
 
       <div class="split">
@@ -222,11 +226,26 @@ async function refresh() {
           </section>` : ''}
         </div>
       </div>`;
+    if (!$('rest')) $('app').innerHTML = '<div id="asking"></div><div id="gate" class="stack-gate"></div><div id="rest" class="stack-rest"></div>';
+    // Three parts, each redrawn only when it changes: the minute hand on the history mustn't replay the gate's animation.
+    if (gateHtml !== lastGate) {
+      $('gate').innerHTML = gateHtml;
+      lastGate = gateHtml;
+      $('gate').querySelectorAll<HTMLButtonElement>('button[data-try]').forEach((b) => b.addEventListener('click', () => void tryPayment(policy, b.dataset.try!).catch(show)));
+    }
+    if (askHtml !== lastAsk) {
+      $('asking').innerHTML = askHtml;
+      lastAsk = askHtml;
+      $('asking').querySelectorAll<HTMLButtonElement>('button[data-act]').forEach((b) => b.addEventListener('click', () => void send(b.dataset.act!, { id: b.dataset.id }).catch(show)));
+    }
+    // Answered once on the first look, so the first thing anyone sees is the contract refusing an attacker.
+    if (upgraded && !revoked && !tried && !triedOnLoad) {
+      triedOnLoad = true;
+      void tryPayment(policy, 'attack').catch(() => undefined);
+    }
     if (html !== lastOk) {
-      $('app').innerHTML = html;
+      $('rest').innerHTML = html;
       lastOk = html;
-      $('app').querySelectorAll<HTMLButtonElement>('button[data-act]').forEach((b) => b.addEventListener('click', () => void send(b.dataset.act!, { id: b.dataset.id }).catch(show)));
-      $('app').querySelectorAll<HTMLButtonElement>('button[data-try]').forEach((b) => b.addEventListener('click', () => void tryPayment(policy, b.dataset.try!).catch(show)));
       $('revoke')?.addEventListener('click', () => {
         if (confirm('Cut the agent off now? Everything waiting is refused.')) void send('revoke', {}).catch(show);
       });
@@ -239,6 +258,8 @@ async function refresh() {
 function show(e: unknown) {
   $('app').innerHTML = `<div class="note-bar">Couldn’t read <code>${esc(contract)}</code> on ${network}: ${esc((e as Error).message ?? e)}</div>`;
   lastOk = '';
+  lastGate = '';
+  lastAsk = '';
 }
 
 void (async () => {

@@ -44,18 +44,61 @@ h1, h2, p { margin: 0; }
 
 main { max-width: 1120px; margin: 0 auto; padding: 8px 24px 32px; display: grid; gap: 16px; }
 
-/* The one thing this page is for: how much of today's money is gone. */
-.hero { padding: 36px 36px 30px; background: var(--pocket); border-radius: var(--r-l); box-shadow: 0 0 0 1px var(--seam); display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px 48px; }
-.hero-say { font-size: 15px; color: var(--thread); max-width: 56ch; text-wrap: pretty; }
-.hero-spent { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 14px 0 20px; }
-.hero-spent strong { font: 600 clamp(48px, 8vw, 76px)/1 var(--money); letter-spacing: -0.05em; font-variant-numeric: tabular-nums; }
-.hero-spent span { font: 400 16px var(--money); color: var(--thread); }
+/* The page says one thing, then proves it live. */
+.stack-gate, .stack-rest { display: grid; gap: 16px; }
+#asking:empty { display: none; }
+.pitch { padding: 36px 0 20px; }
+h1 { font-size: clamp(38px, 6.4vw, 68px); line-height: 1.02; font-weight: 700; letter-spacing: -0.035em; text-wrap: balance; max-width: 16ch; }
+h1 em { font-style: normal; color: var(--signed); }
+.pitch-say { margin-top: 16px; max-width: 60ch; color: var(--thread); font-size: 17px; line-height: 1.45; text-wrap: pretty; }
+
+/* The gate: a payment travels left to right, and how far it gets is the whole product. */
+.gate { background: var(--pocket); border-radius: var(--r-l); box-shadow: 0 0 0 1px var(--seam); overflow: hidden; }
+.gate-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; padding: 18px 22px; }
+.gate-head h2 { font-size: 16px; font-weight: 600; }
+.try-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+button.pressed { background: rgba(255, 255, 255, 0.08); }
+button.stop.pressed { background: var(--refused-dim); }
+.path { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--seam); }
+.path li { padding: 18px 22px; position: relative; min-width: 0; }
+.path li + li { box-shadow: -1px 0 0 var(--seam); }
+.path li + li::before { content: ''; position: absolute; left: -5px; top: 26px; width: 9px; height: 9px; border-top: 1.5px solid var(--faint); border-right: 1.5px solid var(--faint); transform: rotate(45deg); background: var(--pocket); }
+.path b { display: block; font-weight: 600; }
+.path .does { display: block; color: var(--thread); font-size: 13px; }
+.path .who-is { display: block; margin-top: 8px; font: 400 12px var(--money); color: var(--faint); overflow-wrap: anywhere; }
+/* Each outcome lights the steps the payment reached, in order, and leaves the rest dark. */
+.path li { transition: opacity 240ms cubic-bezier(0.23, 1, 0.32, 1); }
+.gate[data-outcome='refused'] .path li:nth-child(n + 3), .gate[data-outcome='held'] .path li:nth-child(n + 3) { opacity: 0.32; }
+.gate[data-outcome='refused'] .the-gate { background: var(--refused-dim); box-shadow: -1px 0 0 var(--seam), inset 0 -2px 0 var(--refused); }
+.gate[data-outcome='refused'] .the-gate b { color: var(--refused); }
+.gate[data-outcome='held'] .the-gate { background: var(--held-dim); box-shadow: -1px 0 0 var(--seam), inset 0 -2px 0 var(--held); }
+.gate[data-outcome='held'] .the-gate b { color: var(--held); }
+.gate[data-outcome='signed'] .path li { background: var(--signed-dim); animation: reach 280ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+.gate[data-outcome='signed'] .path b { color: var(--signed); }
+.gate[data-outcome='signed'] .path li:nth-child(2) { animation-delay: 90ms; }
+.gate[data-outcome='signed'] .path li:nth-child(3) { animation-delay: 180ms; }
+.gate[data-outcome='signed'] .path li:nth-child(4) { animation-delay: 270ms; }
+@keyframes reach { from { opacity: 0.3; } to { opacity: 1; } }
+.verdict { display: flex; align-items: center; gap: 16px; padding: 16px 22px; border-top: 1px solid var(--seam); min-height: 68px; }
+.verdict p { font-size: 14px; color: var(--thread); text-wrap: pretty; }
+.verdict p b { color: var(--ink); font-weight: 600; display: block; }
+.big-stamp { flex: none; font: 700 17px var(--money); letter-spacing: 0.08em; text-transform: uppercase; padding: 5px 12px; border: 2px solid currentColor; border-radius: 5px; animation: stamp 200ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+.big-stamp.refused { color: var(--refused); rotate: -3deg; }
+.big-stamp.held { color: var(--held); }
+.big-stamp.signed { color: var(--signed); }
+@keyframes stamp { from { opacity: 0; transform: scale(1.35); } to { opacity: 1; transform: scale(1); } }
+
+.today { padding: 22px; background: var(--pocket); border-radius: var(--r-l); box-shadow: 0 0 0 1px var(--seam); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px 48px; }
+.today h2 { font-size: 14px; font-weight: 600; }
+.hero-spent { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 8px 0 14px; }
+.hero-spent strong { font: 600 44px/1 var(--money); letter-spacing: -0.05em; font-variant-numeric: tabular-nums; }
+.hero-spent span { font: 400 15px var(--money); color: var(--thread); }
 /* The budget in payments: each cell is the most one payment may be, so a glance shows how many are left. */
-.cells { display: flex; gap: 4px; height: 12px; }
+.cells { display: flex; gap: 4px; height: 10px; }
 .cells i { flex: 1; background: var(--well); box-shadow: inset 0 0 0 1px var(--seam); border-radius: 3px; overflow: hidden; }
 .cells i::before { content: ''; display: block; height: 100%; width: var(--fill, 0%); background: var(--signed); }
 .cells-say { margin-top: 8px; font-size: 13px; color: var(--faint); }
-.facts { display: grid; align-content: start; gap: 14px; }
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: center; gap: 16px 24px; }
 .facts div { display: grid; gap: 1px; }
 .facts dt, .label { font-size: 12px; font-weight: 500; color: var(--faint); }
 .facts dd { margin: 0; font-size: 15px; font-weight: 500; }
@@ -64,16 +107,6 @@ dl { margin: 0; }
 .state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .state.on { color: var(--signed); }
 .state.off { color: var(--refused); }
-
-/* Who can move the money, in the order it happens. */
-.path { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: var(--pocket); border-radius: var(--r-l); box-shadow: 0 0 0 1px var(--seam); }
-.path > div { padding: 18px 20px; position: relative; min-width: 0; }
-.path > div + div { box-shadow: -1px 0 0 var(--seam); }
-.path > div + div::before { content: '→'; position: absolute; left: -9px; top: 19px; width: 18px; text-align: center; background: var(--pocket); color: var(--faint); font-size: 13px; line-height: 20px; }
-.path b { display: block; font-weight: 600; }
-.path .does { color: var(--thread); font-size: 13px; }
-.path .who-is { display: block; margin-top: 8px; font: 400 12px var(--money); color: var(--faint); overflow-wrap: anywhere; }
-.path .rules-here b { color: var(--signed); }
 
 .split { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
 .stack { display: grid; gap: 16px; min-width: 0; }
@@ -123,9 +156,6 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .rules b { color: var(--ink); font-weight: 600; }
 .proof a { font: 400 13px var(--money); }
 
-.try-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.try-answer { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--seam); font-size: 14px; }
-.try-answer .why { display: block; margin-top: 4px; color: var(--thread); }
 
 .foot { max-width: 1120px; margin: 0 auto; padding: 8px 24px 48px; display: grid; gap: 10px; font-size: 13px; color: var(--faint); }
 .foot summary { cursor: pointer; width: fit-content; }
@@ -135,14 +165,18 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .note-bar { padding: 14px 18px; border-radius: var(--r-m); background: var(--held-dim); box-shadow: 0 0 0 1px rgba(245, 165, 36, 0.3); font-size: 14px; }
 
 @media (max-width: 860px) {
-  .hero { grid-template-columns: minmax(0, 1fr); padding: 24px 20px; }
-  .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-top: 8px; border-top: 1px solid var(--seam); }
+  .pitch { padding-top: 16px; }
+  .today { grid-template-columns: minmax(0, 1fr); padding: 20px; }
   .split { grid-template-columns: minmax(0, 1fr); }
-  .path { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .path > div:nth-child(3) { box-shadow: 0 -1px 0 var(--seam); }
-  .path > div:nth-child(4) { box-shadow: 0 -1px 0 var(--seam), -1px 0 0 var(--seam); }
-  .path > div:nth-child(3)::before { display: none; }
+  .path { grid-template-columns: minmax(0, 1fr); }
+  .path li { padding: 12px 20px; }
+  .path li + li { box-shadow: 0 -1px 0 var(--seam); }
+  .path li + li::before { left: 22px; top: -5px; transform: rotate(135deg); }
+  .gate[data-outcome='refused'] .the-gate { box-shadow: 0 -1px 0 var(--seam), inset 2px 0 0 var(--refused); }
+  .gate[data-outcome='held'] .the-gate { box-shadow: 0 -1px 0 var(--seam), inset 2px 0 0 var(--held); }
+  .try-buttons button { flex: 1 1 100%; }
+  .verdict { flex-direction: column; align-items: flex-start; gap: 10px; }
   .who { margin-left: 0; width: 100%; }
   .ledger .why { max-width: 42vw; }
 }
-@media (prefers-reduced-motion: reduce) { button { transition: none; } }
+@media (prefers-reduced-motion: reduce) { button, .path li { transition: none; } .big-stamp, .gate .path li { animation: none !important; } }
