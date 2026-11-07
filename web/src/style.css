@@ -33,7 +33,7 @@ h1, h2, p { margin: 0; }
 .money { font-family: var(--money); font-variant-numeric: tabular-nums; font-feature-settings: 'zero' 0; }
 .loading { padding: 80px 0; text-align: center; }
 
-.top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; max-width: 1120px; margin: 0 auto; padding: 18px 24px; }
+.top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 16px 32px; border-bottom: 1px solid var(--seam); }
 .mark { display: inline-flex; align-items: center; gap: 9px; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; text-decoration: none; }
 .mark i { width: 20px; height: 20px; border-radius: 5px; background: var(--signed); position: relative; }
 .mark i::after { content: ''; position: absolute; left: 4px; right: 4px; top: 6px; bottom: 3px; background: var(--night); border-radius: 0 0 4px 4px; }
@@ -42,15 +42,20 @@ h1, h2, p { margin: 0; }
 .where b.test { color: var(--held); }
 .who { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--thread); }
 
-main { max-width: 1120px; margin: 0 auto; padding: 8px 24px 32px; display: grid; gap: 16px; }
+main { padding: 0 32px 24px; }
+/* A tool, not a brochure: the argument stays put on the left while the proof runs down the right. */
+.layout { display: grid; grid-template-columns: minmax(340px, 440px) minmax(0, 1fr); gap: 40px; align-items: start; }
+.side { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding-top: 24px; min-width: 0; }
+.flow { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding-top: 24px; min-width: 0; }
+@media (min-height: 860px) and (min-width: 1101px) { .side { position: sticky; top: 0; } }
 
 /* The page says one thing, then proves it live. */
 .stack-gate, .stack-rest { display: grid; gap: 16px; }
 #asking:empty { display: none; }
-.pitch { padding: 36px 0 20px; }
-h1 { font-size: clamp(38px, 6.4vw, 68px); line-height: 1.02; font-weight: 700; letter-spacing: -0.035em; text-wrap: balance; max-width: 16ch; }
+.pitch { padding: 0 0 4px; }
+h1 { font-size: clamp(38px, 3.9vw, 56px); line-height: 1.02; font-weight: 700; letter-spacing: -0.035em; text-wrap: balance; }
 h1 em { font-style: normal; color: var(--signed); }
-.pitch-say { margin-top: 16px; max-width: 60ch; color: var(--thread); font-size: 17px; line-height: 1.45; text-wrap: pretty; }
+.pitch-say { margin-top: 14px; color: var(--thread); font-size: 16px; line-height: 1.45; text-wrap: pretty; }
 
 /* The gate: a payment travels left to right, and how far it gets is the whole product. */
 .gate { background: var(--pocket); border-radius: var(--r-l); box-shadow: 0 0 0 1px var(--seam); overflow: hidden; }
@@ -88,7 +93,7 @@ button.stop.pressed { background: var(--refused-dim); }
 .big-stamp.signed { color: var(--signed); }
 @keyframes stamp { from { opacity: 0; transform: scale(1.35); } to { opacity: 1; transform: scale(1); } }
 
-.today { padding: 22px; background: var(--pocket); border-radius: var(--r-l); box-shadow: 0 0 0 1px var(--seam); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px 48px; }
+.today { padding: 20px; background: var(--pocket); border-radius: var(--r-l); box-shadow: 0 0 0 1px var(--seam); display: grid; gap: 16px; }
 .today h2 { font-size: 14px; font-weight: 600; }
 .hero-spent { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 8px 0 14px; }
 .hero-spent strong { font: 600 44px/1 var(--money); letter-spacing: -0.05em; font-variant-numeric: tabular-nums; }
@@ -108,7 +113,8 @@ dl { margin: 0; }
 .state.on { color: var(--signed); }
 .state.off { color: var(--refused); }
 
-.split { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+@media (max-width: 1320px) { .split { grid-template-columns: minmax(0, 1fr); } .path li { padding: 16px; } }
 .stack { display: grid; gap: 16px; min-width: 0; }
 .sheet { background: var(--pocket); border-radius: var(--r-l); box-shadow: 0 0 0 1px var(--seam); padding: 20px 22px; min-width: 0; }
 .sheet h2 { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
@@ -157,16 +163,41 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .proof a { font: 400 13px var(--money); }
 
 
-.foot { max-width: 1120px; margin: 0 auto; padding: 8px 24px 48px; display: grid; gap: 10px; font-size: 13px; color: var(--faint); }
+.foot { padding: 8px 32px 40px; display: grid; gap: 10px; font-size: 13px; color: var(--faint); }
+.questions { display: grid; }
+.questions details { border-top: 1px solid var(--seam); padding: 10px 0; }
+.questions details:last-child { border-bottom: 1px solid var(--seam); }
+.questions summary { cursor: pointer; font-size: 14px; font-weight: 500; }
+.questions p { margin-top: 6px; font-size: 14px; color: var(--thread); text-wrap: pretty; }
+.term { all: unset; cursor: help; border-bottom: 1px dotted var(--faint); }
+.term:hover { color: var(--ink); border-bottom-color: var(--ink); }
+.term:focus-visible { outline: 2px solid var(--signed); outline-offset: 2px; }
+.term-pop { max-width: 340px; padding: 14px 16px; border: 0; border-radius: var(--r-m); background: var(--pocket-raised); color: var(--ink); box-shadow: 0 0 0 1px var(--seam-strong), 0 12px 40px rgba(0, 0, 0, 0.5); font-size: 14px; }
+.term-pop p { margin-top: 4px; color: var(--thread); }
+.term-pop::backdrop { background: rgba(0, 0, 0, 0.35); }
+.dare { background: var(--pocket); border-radius: var(--r-l); box-shadow: 0 0 0 1px rgba(255, 107, 94, 0.35); padding: 20px 22px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.dare h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+.dare-head p { font-size: 14px; margin-top: 4px; }
+.dare-key { display: flex; align-items: center; gap: 10px; background: var(--well); box-shadow: inset 0 0 0 1px var(--seam); border-radius: var(--r-s); padding: 6px 6px 6px 12px; }
+.dare-key code { flex: 1; min-width: 0; font: 400 12px var(--money); color: var(--thread); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dare-key button { min-height: 32px; padding: 0 10px; font-size: 13px; flex: none; }
+.dare-out { display: flex; align-items: center; gap: 14px; font-size: 14px; color: var(--thread); }
+.dare-out:empty { display: none; }
+.dare-out p a { color: var(--ink); }
 .foot summary { cursor: pointer; width: fit-content; }
 .pick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .pick input, .pick select { font: 400 14px var(--money); color: var(--ink); background: var(--well); border: 0; box-shadow: inset 0 0 0 1px var(--seam); border-radius: var(--r-s); padding: 0 10px; min-height: 40px; min-width: 0; }
 .pick input { flex: 1 1 260px; }
 .note-bar { padding: 14px 18px; border-radius: var(--r-m); background: var(--held-dim); box-shadow: 0 0 0 1px rgba(245, 165, 36, 0.3); font-size: 14px; }
 
+@media (max-width: 1100px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .flow { padding-top: 16px; }
+}
 @media (max-width: 860px) {
+  .top, main, .foot { padding-left: 18px; padding-right: 18px; }
   .pitch { padding-top: 16px; }
-  .today { grid-template-columns: minmax(0, 1fr); padding: 20px; }
+  .dare-out { flex-direction: column; align-items: flex-start; }
   .split { grid-template-columns: minmax(0, 1fr); }
   .path { grid-template-columns: minmax(0, 1fr); }
   .path li { padding: 12px 20px; }

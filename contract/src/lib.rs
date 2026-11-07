@@ -232,7 +232,7 @@ impl Allowance {
 
     /// The agent's one power: ask for a payment. Inside the rules it's signed; unusual, it waits for the owner;
     /// anything else is refused and written down. Answers {"held": id} or {"refused": why} when there's no signature.
-    /// Attach at least 1 yoctoNEAR (the MPC's fee, forwarded) and 300 TGas.
+    /// Attach 300 TGas. A deposit is optional: a key limited to this one method can't attach one.
     #[payable]
     pub fn pay(&mut self, to: String, value: U128, valid_after: U64, valid_before: U64, nonce: String) {
         let (to_bytes, to_key) = hex20(&to);
@@ -529,7 +529,9 @@ impl Allowance {
     }
 
     fn sign_then(&mut self, digest: [u8; 32], callback_name: &str, callback_args: Value) {
-        require!(env::attached_deposit() >= NearToken::from_yoctonear(1), "attach at least 1 yoctoNEAR for the MPC fee");
+        // The MPC's fee is 1 yoctoNEAR. The contract covers it if the caller attached nothing, because a key limited to
+        // calling `pay` can't attach a deposit, and that limited key is the safest thing for an agent to hold.
+        let fee = env::attached_deposit().max(NearToken::from_yoctonear(1));
         let args = json!({ "request": { "payload_v2": { "Ecdsa": hex::encode(digest) }, "path": self.path, "domain_id": 0 } });
         // Low-level promise calls on purpose (2026-10-29): near-sdk 5.30's `Promise` builder links
         // every action host function, including testnet-only ones (gas keys,
@@ -538,7 +540,7 @@ impl Allowance {
         let sign = env::promise_batch_create(&self.signer);
         // Static 0 + weight 1: the runtime hands the sign call every unused gas unit, after
         // the callback's fixed share — no hand arithmetic to get wrong.
-        env::promise_batch_action_function_call_weight(sign, "sign", args.to_string().as_bytes(), env::attached_deposit(), Gas::from_gas(0), GasWeight(1));
+        env::promise_batch_action_function_call_weight(sign, "sign", args.to_string().as_bytes(), fee, Gas::from_gas(0), GasWeight(1));
         let callback = env::promise_batch_then(sign, &env::current_account_id());
         env::promise_batch_action_function_call(callback, callback_name, callback_args.to_string().as_bytes(), NearToken::from_yoctonear(0), CALLBACK_GAS);
         env::promise_return(callback);
@@ -856,6 +858,20 @@ mod tests {
         let mut c = contract();
         ctx(accounts(1), 1_700_000_000);
         c.revoke();
+    }
+
+    #[test]
+    fn a_key_that_cant_attach_a_deposit_can_still_ask() {
+        let mut c = contract();
+        testing_env!(VMContextBuilder::new()
+            .current_account_id("allowance.near".parse().unwrap())
+            .predecessor_account_id(accounts(1))
+            .block_timestamp(1_700_000_000 * 1_000_000_000)
+            .attached_deposit(NearToken::from_yoctonear(0))
+            .prepaid_gas(Gas::from_tgas(300))
+            .build());
+        ask(&mut c, GLIANA, 2000);
+        assert_eq!(last(&c).0, "signed");
     }
 
     #[test]

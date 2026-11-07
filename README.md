@@ -7,7 +7,7 @@ only ask, so a stolen key is worth one day's budget at most. It refuels itself
 with NEAR Intents and pays any x402 API. *Saku* is Indonesian for pocket, as in
 *uang saku*: an allowance. Built by [GlianaAI](https://ai.glianalabs.com).
 
-**See it live, nothing to install:** [the owner page](https://gliana-labs.github.io/gliana-near-x402/) reads the budget and history straight from the contract. Press **Send $5 to an attacker** and the live contract answers, with no wallet and nothing sent.
+**See it live, nothing to install:** [the owner page](https://gliana-labs.github.io/gliana-near-x402/) reads the budget and history straight from the contract. It opens with the live contract refusing a $5 attack, and it publishes a real test agent's private key for you to steal with: each button sends a real testnet transaction from your browser. No wallet, no install.
 
 **Demo video (1:46):** [on X](https://x.com/Gliana_agent/status/2118984586587975724) · [demo/saku-demo.mp4](demo/saku-demo.mp4). Refuel, a paid call, and a prompt-injected $5 payment refused, from real mainnet runs.
 
@@ -146,7 +146,7 @@ Try it — do X, see Y:
    ```bash
    npm run contract:test
    ```
-   See: `23 passed` — including the contract's digest matching viem's byte for byte
+   See: `24 passed` — including the contract's digest matching viem's byte for byte
    (USDC's real Base domain separator `0x02fa7265…834f`), the payee list, both caps,
    the day roll-over, the refund on a failed signature, pausing, the free `check`
    view answering exactly like `pay`, payments that wait for the owner, the wait on
@@ -191,7 +191,23 @@ A stolen agent key can fill the waiting list (10 at most) and nothing more. Ever
 NEAR_NETWORK=testnet ALLOWANCE=allowance.<you> AGENT_KEY_FILE=~/.near-gliana/agent.<you>.json OWNER_KEY_FILE=~/.near-gliana/you.testnet.json npx tsx src/rehearse.ts
 ```
 
-See: `PASS` on each line. `npm run allowance:owner -- list | approve <id> | reject <id> | revoke` does the owner's part from a terminal; the owner page does it from a wallet.
+See: `PASS` on each line.
+
+**Mainnet:** `allowance.cocoanutx.near` runs these rules too, upgraded in place on 2026-11-07, so it keeps the same Base address and the receipts below still stand. Its first run under the new rules is still to be recorded.
+
+### Steal with a real key
+
+The [owner page](https://gliana-labs.github.io/gliana-near-x402/) publishes a private key for `agent.gliana-x402.testnet` on purpose (`web/src/dare-key.ts`). It's a NEAR function-call key that may call only `pay` on the testnet allowance. Try it from the page, or:
+
+```bash
+npx tsx src/dare-check.ts
+```
+
+See: the $5 to an attacker refused by the contract (`payee is not on the owner's list`), adding a seller and moving NEAR refused by the network before the contract sees them, and an ordinary $0.002 to a listed seller signed.
+
+This is how an agent should hold its key: limited at the protocol as well as by the contract. The contract pays the MPC's 1 yoctoNEAR itself, because such a key can't attach a deposit.
+
+`npm run allowance:owner -- list | approve <id> | reject <id> | revoke` does the owner's part from a terminal; the owner page does it from a wallet.
 
 ## Refuel: NEAR in, USDC on Base out (NEAR Intents)
 
@@ -281,6 +297,8 @@ demo/                    the recording script and the demo post.
 
 ## Honest limits
 
+- **Experimental and unaudited.** Don't trust it with money you can't lose. Whoever holds the contract account's own key can replace its code, and on this demo that key still exists. In real use, delete it.
+- **The mainnet agent still holds a full-access key on its own account,** because refuelling spends its NEAR. The contract limits what that key can do with the Base wallet, not with that NEAR. Only a `pay`-only key closes that, as on testnet.
 - **Base (EVM) only, for now.** More chains are the next step: other EVM chains with
   USDC need little beyond their domain separator. Solana's `exact` scheme signs a
   serialized transaction, not an EIP-712 digest. `v1.signer` does answer with an

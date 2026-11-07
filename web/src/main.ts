@@ -7,6 +7,7 @@ import '@fontsource/jetbrains-mono/500.css';
 import '@fontsource/jetbrains-mono/600.css';
 import './style.css';
 import { Buffer } from 'buffer';
+import { DARE } from './dare-key';
 import type { WalletSelector } from '@near-wallet-selector/core';
 
 // The wallet libraries expect Node's Buffer as they load, so it's in place before they're imported, further down.
@@ -111,6 +112,64 @@ function header(owner?: string) {
   }
 }
 
+const TERM_TEXT: Record<string, [string, string]> = {
+  mpc: ['MPC', 'Many separate machines hold pieces of one key. 11 of NEAR’s 17 have to agree to sign, and no single machine can sign alone.'],
+  x402: ['x402', 'A way to pay for an API per call: the seller answers “402 Payment Required” with a price, and the buyer pays in USDC and asks again.'],
+  chainsig: ['Chain Signatures', 'NEAR’s way of signing for other chains. Here it lets a NEAR contract control a wallet on Base, with no Base private key stored anywhere.'],
+};
+const term = (id: string, label: string) => `<button type="button" class="term" popovertarget="t-${id}">${esc(label)}</button>`;
+const TERMS = Object.entries(TERM_TEXT).map(([id, [name, text]]) => `<div id="t-${id}" popover class="term-pop"><b>${esc(name)}</b><p>${esc(text)}</p></div>`).join('');
+const PITCH = `<section class="pitch"><h1>Give an AI agent a budget, <em>not a key.</em></h1><p class="pitch-say">The agent holds no key that can move money. A NEAR contract owns its wallet on Base through ${term('chainsig', 'Chain Signatures')}, and signs only within the owner’s rules. A stolen agent key is worth one day’s budget.</p></section>`;
+const QUESTIONS = `<section class="questions" aria-label="Questions">
+  <details><summary>What if the agent’s key is stolen?</summary><p>The thief can only do what the agent can: ask. At most that’s one day’s budget, paid only to sellers the owner chose. Anything else is refused or waits for the owner.</p></details>
+  <details><summary>Can GlianaAI take the money?</summary><p>No. The money is in a wallet only this contract can sign for, and only its owner can change the rules. Whoever holds the contract account’s own key could replace its code, so in real use that key should be deleted. On this demo it’s still there, so we can improve it.</p></details>
+  <details><summary>Is any of this real?</summary><p>Yes. The budget and history above come from a live mainnet contract, and the receipts are real payments. “Steal with it” runs on testnet, so nobody’s money is at stake.</p></details>
+  <details><summary>What can’t it do yet?</summary><p>It pays on Base only, with more chains to come. The contract is experimental and hasn’t been audited, so don’t trust it with money you can’t lose.</p></details>
+</section>`;
+const DARE_HTML = `<section class="dare" aria-label="Steal with a real key">
+  <div class="dare-head"><h2>Here’s the agent’s key. Steal with it.</h2><p class="quiet">A real private key for a test agent, published on purpose. Each button sends a real transaction from your browser, on testnet.</p></div>
+  <div class="dare-key"><code>${esc(DARE.key)}</code><button type="button" class="ghost" id="dare-copy">Copy</button></div>
+  <div class="try-buttons"><button class="stop" data-steal="pay">Steal $5 with it</button><button class="ghost" data-steal="payee">Add yourself as a seller</button><button class="ghost" data-steal="drain">Take the agent’s NEAR</button></div>
+  <div id="dare-out" class="dare-out" role="status"></div>
+</section>`;
+
+/** Really uses the published key, from this browser. Loaded on the press: most visitors never need the signing code. */
+async function steal(what: string, button: HTMLButtonElement) {
+  const out = $('dare-out');
+  button.disabled = true;
+  out.innerHTML = '<p class="quiet">Sending to testnet…</p>';
+  const say = (stamp: string, tone: string, text: string, tx?: string) => {
+    out.innerHTML = `<span class="big-stamp ${tone}">${esc(stamp)}</span><p>${esc(text)}${tx ? ` <a href="https://testnet.nearblocks.io/txns/${esc(tx)}">See the transaction</a>` : ''}</p>`;
+  };
+  try {
+    const [{ Account }, { KeyPair }, { JsonRpcProvider }, { KeyPairSigner }, { actionCreators }] = await Promise.all([import('@near-js/accounts'), import('@near-js/crypto'), import('@near-js/providers'), import('@near-js/signers'), import('@near-js/transactions')]);
+    const provider = new JsonRpcProvider({ url: 'https://test.rpc.fastnear.com' });
+    const thief = new Account(DARE.account, provider, new KeyPairSigner(KeyPair.fromString(DARE.key as `ed25519:${string}`)));
+    const now = Math.floor(Date.now() / 1000);
+    const nonce = `0x${[...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+    const GAS = 30_000_000_000_000n;
+    if (what === 'pay') {
+      const sent = await thief.signAndSendTransaction({ receiverId: DARE.contract, actions: [actionCreators.functionCall('pay', { to: '0x000000000000000000000000000000000000dEaD', value: '5000000', valid_after: String(now - 60), valid_before: String(now + 600), nonce }, GAS, 0n)] });
+      const value = (sent.status as { SuccessValue?: string }).SuccessValue ?? '';
+      const answer = JSON.parse(atob(value) || '{}') as { refused?: string };
+      say('Refused', 'refused', `The key worked, and the contract still said no: “${answer.refused ?? 'refused'}”. You got $0.`, sent.transaction.hash);
+    } else if (what === 'payee') {
+      await thief.signAndSendTransaction({ receiverId: DARE.contract, actions: [actionCreators.functionCall('add_payee', { payee: '0x000000000000000000000000000000000000dEaD' }, GAS, 0n)] });
+      say('Signed', 'signed', 'This should never happen. Please tell us.');
+    } else {
+      await thief.signAndSendTransaction({ receiverId: DARE.contract, actions: [actionCreators.transfer(10n ** 22n)] });
+      say('Signed', 'signed', 'This should never happen. Please tell us.');
+    }
+  } catch (e) {
+    const m = String((e as Error).message ?? e);
+    const blocked = /isn.t allowed|more then one action|not allowed|access key|deposit/i.test(m);
+    if (blocked) say('Blocked', 'refused', what === 'payee' ? 'The network refused before the contract even saw it: this key may only call pay, and only the owner can add sellers.' : 'The network refused: this key can’t move NEAR. It can only ask the contract for a payment.');
+    else out.innerHTML = `<p class="quiet">Testnet didn’t answer that one: ${esc(m.slice(0, 120))}. Try again.</p>`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
 /** What the contract itself just said to a pretend payment. Anyone can ask, because `check` is a free view. */
 let tried: { kind: string; label: string; answer: string | null } | null = null;
 async function tryPayment(p: Policy, kind: string) {
@@ -129,6 +188,7 @@ async function tryPayment(p: Policy, kind: string) {
 
 let lastOk = '';
 let lastGate = '';
+let lastToday = '';
 let lastAsk = '';
 let triedOnLoad = false;
 async function refresh() {
@@ -155,10 +215,6 @@ async function refresh() {
     const outcome = !tried ? '' : !tried.answer ? 'signed' : tried.answer.startsWith('held:') ? 'held' : 'refused';
     const answerLine = !tried ? 'Press one. The live contract answers, and nothing is sent.' : outcome === 'signed' ? 'Inside the rules, so NEAR’s MPC would sign it and the wallet would pay.' : outcome === 'held' ? `Nothing is signed until the owner approves: ${esc(tried.answer!.replace('held: ', ''))}.` : `The contract’s own answer: “${esc(tried.answer)}”. Nothing was signed.`;
     const gateHtml = `
-      <section class="pitch">
-        <h1>Give an AI agent a budget, <em>not a key.</em></h1>
-        <p class="pitch-say">The agent holds no key that can move money. A NEAR contract owns its wallet on Base, and signs only within the owner’s rules. A stolen agent key is worth one day’s budget.</p>
-      </section>
       <section class="gate" data-outcome="${outcome}" aria-label="Who can move the money">
         ${upgraded && !revoked ? `<div class="gate-head">
           <h2>Try to break it</h2>
@@ -171,8 +227,8 @@ async function refresh() {
         <ol class="path">
           <li><b>Agent</b><span class="does">${revoked ? 'cut off' : 'can only ask'}</span><span class="who-is" title="${esc(policy.agent)}">${revoked ? 'no agent' : esc(short(policy.agent, 24))}</span></li>
           <li class="the-gate"><b>Contract</b><span class="does">${outcome === 'held' ? 'waits for the owner' : outcome === 'refused' ? 'stops it here' : 'checks the owner’s rules'}</span><span class="who-is"><a href="${EXPLORER}/address/${esc(contract)}" title="${esc(contract)}">${esc(short(contract, 24))}</a></span></li>
-          <li><b>NEAR MPC</b><span class="does">11 of 17 nodes sign</span><span class="who-is">${esc(policy.signer)}</span></li>
-          <li><b>Base wallet</b><span class="does">pays any x402 seller</span><span class="who-is"><a href="https://basescan.org/address/${esc(policy.from)}">${esc(short(policy.from))}</a></span></li>
+          <li><b>NEAR MPC</b><span class="does">11 of 17 ${term('mpc', 'MPC')} nodes sign</span><span class="who-is">${esc(policy.signer)}</span></li>
+          <li><b>Base wallet</b><span class="does">pays any ${term('x402', 'x402')} seller</span><span class="who-is"><a href="https://basescan.org/address/${esc(policy.from)}">${esc(short(policy.from))}</a></span></li>
         </ol>
         ${upgraded && !revoked ? `<div class="verdict" role="status">${tried ? `<span class="big-stamp ${outcome}">${outcome === 'signed' ? 'Would sign' : outcome === 'held' ? 'Held' : 'Refused'}</span>` : ''}<p><b>${tried ? esc(tried.label) : ''}</b> ${answerLine}</p></div>` : ''}
       </section>`;
@@ -181,9 +237,7 @@ async function refresh() {
         <p class="quiet" style="font-size:14px">Nothing is signed until the owner decides.${owner ? '' : ' Connect the owner’s wallet to decide.'}</p>
         ${waiting.map((h) => `<div class="ask-row"><div><span class="ask-amount">${usd(h.value)}</span> to ${baseLink(`0x${h.to}`)}<div class="faint" style="font-size:13px">${esc(h.why)} · expires ${esc(until(h.valid_before))}</div></div><div class="ask-buttons"><button class="go" data-act="approve" data-id="${esc(h.id)}" ${owner ? '' : 'disabled'}>Approve</button><button class="ghost" data-act="reject" data-id="${esc(h.id)}" ${owner ? '' : 'disabled'}>Reject</button></div></div>`).join('')}
       </section>` : '';
-    const html = `
-      ${upgraded ? '' : '<div class="note-bar">This contract was deployed before approvals, new-seller waits and history. It still enforces its budget, shown below.</div>'}
-      <section class="today" aria-label="Today's budget">
+    const todayHtml = `      <section class="today" aria-label="Today's budget">
         <div class="today-money">
           <h2>Spent today</h2>
           <div class="hero-spent"><strong>${usd(spent)}</strong><span>of ${usd(daily)}</span></div>
@@ -196,15 +250,16 @@ async function refresh() {
           <div><dt>Signs on its own up to</dt><dd class="money">${usd(cap)}</dd></div>
           ${upgraded ? `<div><dt>Owner can approve up to</dt><dd class="money">${usd(policy.approval_max!)}</dd></div>` : ''}
         </dl>
-      </section>
-
-      <div class="split">
+      </section>`;
+    const html = `
+      ${upgraded ? '' : '<div class="note-bar">This contract was deployed before approvals, new-seller waits and history. It still enforces its budget, shown below.</div>'}
+<div class="split">
         <div class="stack">
         <section class="sheet">
           <h2>What happened</h2>
           ${upgraded ? (history2.length ? `<table class="ledger">${history2.slice(0, 14).map((e) => {
             const [word, tone] = WORDS[e.what] ?? [e.what, 'note'];
-            return `<tr><td><span class="stamp ${tone}">${esc(word)}</span></td><td>${e.to ? baseLink(e.to) : ''}${e.note ? `<span class="why">${esc(e.note)}</span>` : ''}</td><td class="amt">${Number(e.value) ? usd(e.value) : ''}</td><td class="when" title="${esc(when(e.at))}">${esc(ago(e.at))}</td></tr>`;
+            return `<tr><td><span class="stamp ${tone}">${esc(word)}</span></td><td>${e.to ? baseLink(e.to) : ''}${e.note ? `<span class="why">${esc(e.note)}</span>` : ''}</td><td class="amt">${Number(e.value) ? usd(e.value) : ''}</td><td class="when"><a href="${EXPLORER}/address/${esc(contract)}" title="${esc(when(e.at))}. Check it on chain.">${esc(ago(e.at))}</a></td></tr>`;
           }).join('')}</table>` : '<p class="quiet">Nothing yet. Every payment the agent asks for lands here, refused ones too.</p>') : '<p class="quiet">This contract keeps no history yet.</p>'}
         </section>
           ${PROOF.length ? `<section class="sheet proof"><h2>Real receipts</h2>${PROOF.map(([what, url]) => `<div class="line"><span>${esc(what)}</span><a href="${esc(url)}">view</a></div>`).join('')}</section>` : ''}
@@ -226,7 +281,15 @@ async function refresh() {
           </section>` : ''}
         </div>
       </div>`;
-    if (!$('rest')) $('app').innerHTML = '<div id="asking"></div><div id="gate" class="stack-gate"></div><div id="rest" class="stack-rest"></div>';
+    if (!$('rest')) {
+      $('app').innerHTML = `<div class="layout"><aside class="side">${PITCH}<div id="today"></div>${QUESTIONS}</aside><div class="flow"><div id="asking"></div><div id="gate"></div>${DARE_HTML}<div id="rest" class="stack-rest"></div></div></div>${TERMS}`;
+      $('app').querySelectorAll<HTMLButtonElement>('button[data-steal]').forEach((b) => b.addEventListener('click', () => void steal(b.dataset.steal!, b)));
+      $('dare-copy')?.addEventListener('click', () => void navigator.clipboard?.writeText(DARE.key));
+    }
+    if (todayHtml !== lastToday) {
+      $('today').innerHTML = todayHtml;
+      lastToday = todayHtml;
+    }
     // Three parts, each redrawn only when it changes: the minute hand on the history mustn't replay the gate's animation.
     if (gateHtml !== lastGate) {
       $('gate').innerHTML = gateHtml;
@@ -260,6 +323,7 @@ function show(e: unknown) {
   lastOk = '';
   lastGate = '';
   lastAsk = '';
+  lastToday = '';
 }
 
 void (async () => {
