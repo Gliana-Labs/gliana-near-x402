@@ -7,6 +7,8 @@ only ask, so a stolen key is worth one day's budget at most. It refuels itself
 with NEAR Intents and pays any x402 API. *Saku* is Indonesian for pocket, as in
 *uang saku*: an allowance. Built by [GlianaAI](https://ai.glianalabs.com).
 
+**Demo video (1:46):** [demo/saku-demo.mp4](demo/saku-demo.mp4). Refuel, a paid call, and a prompt-injected $5 payment refused, from real mainnet runs.
+
 ## Under it: pay for AI with a NEAR account — no EVM private key anywhere
 
 **NEAR HACKATHON 2026 · tracks: Agent Economy (`agents`), AI Security & Defense (`security`)**
@@ -53,7 +55,7 @@ Needs Node.js 20+. Steps 1-3 need no account, no key and no money.
    ```bash
    npm install && npm test
    ```
-   See: `34 passed`. They include a real reply from `v1.signer-prod.testnet`
+   See: `36 passed`. They include a real reply from `v1.signer-prod.testnet`
    (a committed fixture) whose signature recovers to the address derived
    offline, and address derivation checked against `chainsig.js` vectors.
 
