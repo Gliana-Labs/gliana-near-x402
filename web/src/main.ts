@@ -111,6 +111,23 @@ function header(owner?: string) {
   }
 }
 
+/** What the contract itself just said to a pretend payment. Anyone can ask, because `check` is a free view. */
+let tried: { label: string; answer: string | null } | null = null;
+async function tryPayment(p: Policy, kind: string) {
+  const now = Math.floor(Date.now() / 1000);
+  const seller = p.payees[0];
+  const asks: Record<string, [string, string, string]> = {
+    attack: ['Send $5.00 to an attacker', '0x000000000000000000000000000000000000dEaD', '5000000'],
+    unusual: ['$0.018 to a listed seller, over the limit', seller, '18000'],
+    normal: ['$0.002 to a listed seller', seller, '2000'],
+  };
+  const [label, to, value] = asks[kind];
+  const answer = await view<string | null>('check', { agent: p.agent, to, value, valid_after: String(now - 60), valid_before: String(now + 600) });
+  tried = { label, answer };
+  lastOk = '';
+  await refresh();
+}
+
 let lastOk = '';
 async function refresh() {
   try {
@@ -153,6 +170,21 @@ async function refresh() {
         ${waiting.map((h) => `<div class="ask-row"><div><span class="ask-amount">${usd(h.value)}</span> to ${baseLink(`0x${h.to}`)}<div class="faint" style="font-size:13px">${esc(h.why)} · expires ${esc(until(h.valid_before))}</div></div><div class="ask-buttons"><button class="go" data-act="approve" data-id="${esc(h.id)}" ${owner ? '' : 'disabled'}>Approve</button><button class="ghost" data-act="reject" data-id="${esc(h.id)}" ${owner ? '' : 'disabled'}>Reject</button></div></div>`).join('')}
       </section>` : ''}
 
+      ${upgraded && !revoked ? `<section class="sheet tryit">
+        <h2>Try to break it</h2>
+        <p class="quiet">Ask this contract, live on ${network}, what it would do. No wallet needed, and nothing is sent.</p>
+        <div class="try-buttons">
+          <button class="stop" data-try="attack">Send $5 to an attacker</button>
+          <button class="ghost" data-try="unusual">$0.018, over the limit</button>
+          <button class="ghost" data-try="normal">$0.002, inside the rules</button>
+        </div>
+        ${tried ? (() => {
+          const a = tried.answer;
+          const held = a?.startsWith('held:');
+          return `<div class="try-answer" role="status"><span class="stamp ${!a ? 'ok' : held ? 'wait' : 'bad'}">${!a ? 'Would sign' : held ? 'Would hold' : 'Refused'}</span> <span>${esc(tried.label)}</span><span class="why">${!a ? 'Inside the rules, so NEAR’s MPC would sign it.' : held ? `Nothing is signed until the owner approves: ${esc(a!.replace('held: ', ''))}.` : `The contract’s own answer: “${esc(a)}”.`}</span></div>`;
+        })() : ''}
+      </section>` : ''}
+
       <section class="path" aria-label="Who can move the money">
         <div><b>Agent</b><span class="does">${revoked ? 'cut off' : 'can only ask'}</span><span class="who-is">${revoked ? 'no agent' : esc(policy.agent)}</span></div>
         <div class="rules-here"><b>Contract</b><span class="does">checks the owner’s rules</span><span class="who-is"><a href="${EXPLORER}/address/${esc(contract)}">${esc(contract)}</a></span></div>
@@ -192,6 +224,7 @@ async function refresh() {
       $('app').innerHTML = html;
       lastOk = html;
       $('app').querySelectorAll<HTMLButtonElement>('button[data-act]').forEach((b) => b.addEventListener('click', () => void send(b.dataset.act!, { id: b.dataset.id }).catch(show)));
+      $('app').querySelectorAll<HTMLButtonElement>('button[data-try]').forEach((b) => b.addEventListener('click', () => void tryPayment(policy, b.dataset.try!).catch(show)));
       $('revoke')?.addEventListener('click', () => {
         if (confirm('Cut the agent off now? Everything waiting is refused.')) void send('revoke', {}).catch(show);
       });

@@ -123,6 +123,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .rules b { color: var(--ink); font-weight: 600; }
 .proof a { font: 400 13px var(--money); }
 
+.try-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.try-answer { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--seam); font-size: 14px; }
+.try-answer .why { display: block; margin-top: 4px; color: var(--thread); }
+
 .foot { max-width: 1120px; margin: 0 auto; padding: 8px 24px 48px; display: grid; gap: 10px; font-size: 13px; color: var(--faint); }
 .foot summary { cursor: pointer; width: fit-content; }
 .pick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }

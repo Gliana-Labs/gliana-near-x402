@@ -7,7 +7,7 @@ only ask, so a stolen key is worth one day's budget at most. It refuels itself
 with NEAR Intents and pays any x402 API. *Saku* is Indonesian for pocket, as in
 *uang saku*: an allowance. Built by [GlianaAI](https://ai.glianalabs.com).
 
-**See it live, nothing to install:** [the owner page](https://gliana-labs.github.io/gliana-near-x402/) reads the budget and history straight from the contract.
+**See it live, nothing to install:** [the owner page](https://gliana-labs.github.io/gliana-near-x402/) reads the budget and history straight from the contract. Press **Send $5 to an attacker** and the live contract answers, with no wallet and nothing sent.
 
 **Demo video (1:46):** [on X](https://x.com/Gliana_agent/status/2118984586587975724) · [demo/saku-demo.mp4](demo/saku-demo.mp4). Refuel, a paid call, and a prompt-injected $5 payment refused, from real mainnet runs.
 
