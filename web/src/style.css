@@ -35,8 +35,8 @@ h1, h2, p { margin: 0; }
 
 .top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 16px 32px; border-bottom: 1px solid var(--seam); }
 .mark { display: inline-flex; align-items: center; gap: 9px; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; text-decoration: none; }
-.mark i { width: 20px; height: 20px; border-radius: 5px; background: var(--signed); position: relative; }
-.mark i::after { content: ''; position: absolute; left: 4px; right: 4px; top: 6px; bottom: 3px; background: var(--night); border-radius: 0 0 4px 4px; }
+.mark-logo { display: inline-flex; width: 26px; height: 26px; color: var(--signed); }
+.mark-logo svg { display: block; width: 100%; height: 100%; }
 .where { font: 400 13px var(--money); color: var(--thread); display: inline-flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
 .where b { font-weight: 500; color: var(--signed); }
 .where b.test { color: var(--held); }
@@ -211,3 +211,17 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .ledger .why { max-width: 42vw; }
 }
 @media (prefers-reduced-motion: reduce) { button, .path li { transition: none; } .big-stamp, .gate .path li { animation: none !important; } }
+
+/* The wait: what's in the pocket lifts out and drops back in, and the pocket gives as it lands. */
+.saku-wait { display: inline-flex; flex-direction: column; align-items: center; gap: 12px; color: var(--thread); font-size: 14px; }
+.saku-wait.inline { flex-direction: row; gap: 8px; }
+.saku-loader { display: block; overflow: visible; color: var(--signed); }
+.saku-ring { transform-box: fill-box; transform-origin: 50% 100%; animation: saku-lift 1.15s cubic-bezier(0.3, 0, 0.3, 1) infinite; }
+.saku-pouch { transform-box: fill-box; transform-origin: 50% 100%; animation: saku-give 1.15s ease-out infinite; }
+@keyframes saku-lift { 0%, 12% { transform: translateY(0); } 48% { transform: translateY(-34%); } 78% { transform: translateY(0); } 86% { transform: translateY(-5%); } 94%, 100% { transform: translateY(0); } }
+@keyframes saku-give { 0%, 70% { transform: scale(1, 1); } 80% { transform: scale(1.05, 0.9); } 92%, 100% { transform: scale(1, 1); } }
+@keyframes saku-breathe { 50% { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) {
+  .saku-ring, .saku-pouch { animation: none; }
+  .saku-loader { animation: saku-breathe 1.6s ease-in-out infinite; }
+}

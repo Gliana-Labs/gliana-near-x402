@@ -6,6 +6,7 @@ import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/500.css';
 import '@fontsource/jetbrains-mono/600.css';
 import './style.css';
+import { loader } from './logo';
 import { Buffer } from 'buffer';
 import { DARE } from './dare-key';
 import type { WalletSelector } from '@near-wallet-selector/core';
@@ -137,7 +138,7 @@ const DARE_HTML = `<section class="dare" aria-label="Steal with a real key">
 async function steal(what: string, button: HTMLButtonElement) {
   const out = $('dare-out');
   button.disabled = true;
-  out.innerHTML = '<p class="quiet">Sending to testnet…</p>';
+  out.innerHTML = `<p>${loader('Sending to testnet…', 30)}</p>`;
   const say = (stamp: string, tone: string, text: string, tx?: string) => {
     out.innerHTML = `<span class="big-stamp ${tone}">${esc(stamp)}</span><p>${esc(text)}${tx ? ` <a href="https://testnet.nearblocks.io/txns/${esc(tx)}">See the transaction</a>` : ''}</p>`;
   };
