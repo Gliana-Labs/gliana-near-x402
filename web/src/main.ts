@@ -140,6 +140,8 @@ async function refresh() {
     const revoked = policy.agent === contract;
     const waiting = held.filter((h) => h.status === 'waiting' && Number(h.valid_before) > now);
     const pct = Math.min(100, (Number(policy.spent_today) / Number(policy.daily_limit)) * 100);
+    // In a background tab, the title is what tells the owner a payment is waiting.
+    document.title = `${waiting.length ? `(${waiting.length}) ` : ''}Saku: an AI agent's budget, enforced on NEAR`;
     const spent = Number(policy.spent_today);
     const daily = Number(policy.daily_limit);
     const cap = Number(policy.per_payment_max);
