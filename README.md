@@ -57,7 +57,7 @@ Needs Node.js 20+. Steps 1-3 need no account, no key and no money.
    ```bash
    npm install && npm test
    ```
-   See: `38 passed`. They include a real reply from `v1.signer-prod.testnet`
+   See: `41 passed`. They include a real reply from `v1.signer-prod.testnet`
    (a committed fixture) whose signature recovers to the address derived
    offline, and address derivation checked against `chainsig.js` vectors.
 
@@ -194,6 +194,16 @@ NEAR_NETWORK=testnet ALLOWANCE=allowance.<you> AGENT_KEY_FILE=~/.near-gliana/age
 See: `PASS` on each line.
 
 **Mainnet:** `allowance.cocoanutx.near` runs these rules too, upgraded in place on 2026-11-07, so it keeps the same Base address and the receipts below still stand. Its first run under the new rules is still to be recorded.
+
+### Get told when a payment is held
+
+The owner shouldn't have to keep the page open. This reads the contract, holds no key, and announces each held payment once:
+
+```bash
+ALLOWANCE=allowance.you.near npm run allowance:watch
+```
+
+Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to get them on Telegram, or `ONCE=1` to run it from cron.
 
 ### Steal with a real key
 

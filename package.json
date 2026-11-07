@@ -16,7 +16,8 @@
     "refuel": "tsx src/refuel-cli.ts",
     "demo:allowance": "tsx src/allowance-demo.ts",
     "allowance:upgrade": "tsx src/upgrade-allowance.ts",
-    "allowance:owner": "tsx src/owner.ts"
+    "allowance:owner": "tsx src/owner.ts",
+    "allowance:watch": "tsx src/watch-held.ts"
   },
   "dependencies": {
     "@near-js/accounts": "^2.5.1",
