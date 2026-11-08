@@ -357,6 +357,12 @@ limits and policy engines that give AI money without the keys. Point by point:
   the factory gives the key an unlimited allowance, so it can't lock itself out by allowance, only by the account
   running out of NEAR, which anyone can top up (the owner page shows the balance). The **mainnet demo agent** still
   holds a full-access key because it refuels itself with NEAR Intents; see Honest limits.
+  **And the account's own limits:** an account that holds only a function-call key can't move its NEAR out, delete
+  itself or manage its keys ([NEAR docs](https://docs.near.org/protocol/accounts-contracts/access-keys)). So an
+  agent's NEAR (0.5 by default) is gas money only: if the owner replaces the agent with `set_agent`, what's left in the
+  old agent account stays there. Keep it small.
+- **Why not a TEE wallet?** A TEE vault keeps the key inside hardware you trust. Here the Base key doesn't exist at
+  all: NEAR's MPC network signs, and only when this contract asks.
 - **An attack demo with the log.** A prompt-injected agent sends $5 to an attacker and is refused before anything is
   signed: [`demo/allowance4-session.log`](demo/allowance4-session.log) on mainnet, and live on
   [saku.glianalabs.com](https://saku.glianalabs.com) with a real, published testnet key you can steal with.
