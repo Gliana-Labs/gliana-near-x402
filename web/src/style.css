@@ -30,6 +30,9 @@
   --signed-hover: #3ff5b2;
   --pop-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
   --top-bg: rgba(10, 12, 15, 0.82);
+  --glow: rgba(0, 236, 151, 0.09);
+  --grid: rgba(255, 255, 255, 0.035);
+  --slam-bg: rgba(17, 20, 26, 0.94);
   color-scheme: dark;
 }
 /* Light: the same ledger on paper. Colours darken so they still read on white (green, amber and red all pass 4.5:1). */
@@ -59,11 +62,16 @@
   --signed-hover: #006c49;
   --pop-shadow: 0 12px 40px rgba(15, 20, 30, 0.15);
   --top-bg: rgba(245, 246, 248, 0.85);
+  --glow: rgba(0, 133, 90, 0.08);
+  --grid: rgba(15, 20, 30, 0.05);
+  --slam-bg: rgba(255, 255, 255, 0.94);
   color-scheme: light;
 }
 * { box-sizing: border-box; }
 html { -webkit-font-smoothing: antialiased; }
-body { margin: 0; background: var(--night); color: var(--ink); font: 400 15px/1.5 var(--sans); }
+body { margin: 0; background: radial-gradient(1100px 620px at 12% -8%, var(--glow), transparent 62%), var(--night); color: var(--ink); font: 400 15px/1.5 var(--sans); }
+/* The same faint grid and green glow as the demo video, fading out below the fold so the ledger stays quiet. */
+body::before { content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); background-size: 48px 48px; -webkit-mask-image: radial-gradient(ellipse 90% 70% at 25% 0%, #000 10%, transparent 75%); mask-image: radial-gradient(ellipse 90% 70% at 25% 0%, #000 10%, transparent 75%); }
 a { color: inherit; text-decoration-color: var(--seam-strong); text-underline-offset: 3px; }
 a:hover { text-decoration-color: currentColor; }
 :focus-visible { outline: 2px solid var(--signed); outline-offset: 2px; border-radius: 4px; }
@@ -83,7 +91,17 @@ body:has(#app > .loading) .foot { display: none; }
 .where { font: 400 13px var(--money); color: var(--thread); display: inline-flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
 .where b { font-weight: 500; color: var(--signed); }
 .where b.test { color: var(--held); }
-.who { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--thread); }
+/* Live, or retrying: whether the numbers on screen are fresh is the first thing to know about a ledger. */
+.link { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 0 11px; border-radius: 999px; background: transparent; box-shadow: inset 0 0 0 1px var(--seam-strong); color: var(--thread); font: 500 12px var(--money); white-space: nowrap; }
+.link:hover { background: var(--hover); }
+.link i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+.link.ok i { background: var(--signed); box-shadow: 0 0 0 0 var(--signed); animation: beat 2.4s ease-out infinite; }
+.link.busy { color: var(--held); box-shadow: inset 0 0 0 1px var(--held-soft-line); background: var(--held-dim); }
+.link.busy i { background: var(--held); }
+.link span { color: var(--faint); }
+.link.busy span { color: inherit; }
+@keyframes beat { 0% { box-shadow: 0 0 0 0 var(--signed); } 70%, 100% { box-shadow: 0 0 0 6px transparent; } }
+.who { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--thread); }
 
 main { padding: 0 32px 24px; }
 /* A tool, not a brochure: the argument stays put on the left while the proof runs down the right. */
@@ -96,14 +114,20 @@ main { padding: 0 32px 24px; }
 .stack-gate, .stack-rest { display: grid; gap: 16px; }
 #asking:empty { display: none; }
 .pitch { padding: 0 0 4px; }
+.eyebrow { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 16px; padding: 4px 11px 4px 9px; border-radius: 999px; background: var(--signed-dim); color: var(--signed); font: 500 12px var(--money); letter-spacing: 0.02em; }
+.eyebrow i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.jump { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+a.btn { display: inline-flex; align-items: center; min-height: 40px; padding: 0 16px; border-radius: var(--r-s); font: 600 14px var(--sans); text-decoration: none; transition: background-color 120ms, transform 120ms cubic-bezier(0.23, 1, 0.32, 1); }
+a.btn:active { transform: scale(0.97); }
+html { scroll-behavior: smooth; scroll-padding-top: 76px; }
 h1 { font-size: clamp(38px, 3.9vw, 56px); line-height: 1.02; font-weight: 700; letter-spacing: -0.035em; text-wrap: balance; }
 h1 em { font-style: normal; color: var(--signed); }
 .pitch-say { margin-top: 14px; color: var(--thread); font-size: 16px; line-height: 1.45; text-wrap: pretty; }
 
 /* The gate: a payment travels left to right, and how far it gets is the whole product. */
-.gate { background: var(--pocket); border-radius: var(--r-l); box-shadow: 0 0 0 1px var(--seam); overflow: hidden; }
+.gate { position: relative; background: var(--pocket); border-radius: var(--r-l); box-shadow: 0 0 0 1px var(--seam); overflow: hidden; }
 .gate-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; padding: 18px 22px; }
-.gate-head h2 { font-size: 16px; font-weight: 600; }
+.gate-head h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
 .try-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 button.pressed { background: var(--press); }
 button.stop.pressed { background: var(--refused-dim); }
@@ -111,7 +135,12 @@ button.stop.pressed { background: var(--refused-dim); }
 .path li { padding: 18px 22px; position: relative; min-width: 0; }
 .path li + li { box-shadow: -1px 0 0 var(--seam); }
 .path li + li::before { content: ''; position: absolute; left: -5px; top: 26px; width: 9px; height: 9px; border-top: 1.5px solid var(--faint); border-right: 1.5px solid var(--faint); transform: rotate(45deg); background: var(--pocket); }
-.path b { display: block; font-weight: 600; }
+.path { counter-reset: step; }
+.path b { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.path b::before { counter-increment: step; content: counter(step); display: inline-grid; place-items: center; flex: none; width: 20px; height: 20px; border-radius: 50%; font: 600 11px var(--money); color: var(--thread); background: var(--well); box-shadow: inset 0 0 0 1px var(--seam-strong); }
+.gate[data-outcome='refused'] .the-gate b::before { background: var(--refused); color: var(--on-signed); box-shadow: none; }
+.gate[data-outcome='held'] .the-gate b::before { background: var(--held); color: var(--on-signed); box-shadow: none; }
+.gate[data-outcome='signed'] .path b::before { background: var(--signed); color: var(--on-signed); box-shadow: none; }
 .path .does { display: block; color: var(--thread); font-size: 13px; }
 .path .who-is { display: block; margin-top: 8px; font: 400 12px var(--money); color: var(--faint); overflow-wrap: anywhere; }
 /* Each outcome lights the steps the payment reached, in order, and leaves the rest dark. */
@@ -134,17 +163,27 @@ button.stop.pressed { background: var(--refused-dim); }
 .big-stamp.refused { color: var(--refused); rotate: -3deg; }
 .big-stamp.held { color: var(--held); }
 .big-stamp.signed { color: var(--signed); }
+/* The video's slam: a huge stamp lands over the steps the payment never reached, and the gate takes the hit. */
+.path-wrap { position: relative; }
+.slam { position: absolute; left: 75%; top: 50%; translate: -50% -50%; rotate: -6deg; pointer-events: none; padding: 0 22px; border: 6px solid currentColor; border-radius: 12px; background: var(--slam-bg); font: 900 clamp(34px, 3.6vw, 56px)/1.15 var(--sans); letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; animation: slam 420ms cubic-bezier(0.2, 1.4, 0.4, 1) 120ms both; }
+.slam.refused { color: var(--refused); box-shadow: 0 0 60px var(--refused-dim); }
+.slam.held { color: var(--held); rotate: -3deg; }
+.gate[data-outcome='refused'] .path-wrap { animation: hit 380ms ease-out 300ms both; }
+.gate[data-outcome='refused'] .the-gate { animation: flash 900ms ease-out 300ms both; }
+@keyframes slam { 0% { opacity: 0; transform: scale(2.4); } 45% { opacity: 1; transform: scale(0.94); } 100% { opacity: 1; transform: scale(1); } }
+@keyframes hit { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-7px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(2px); } }
+@keyframes flash { 0% { box-shadow: -1px 0 0 var(--seam), inset 0 -2px 0 var(--refused), inset 0 0 60px var(--refused-line); } 100% { box-shadow: -1px 0 0 var(--seam), inset 0 -2px 0 var(--refused); } }
 @keyframes stamp { from { opacity: 0; transform: scale(1.35); } to { opacity: 1; transform: scale(1); } }
 
 .today { padding: 20px; background: var(--pocket); border-radius: var(--r-l); box-shadow: 0 0 0 1px var(--seam); display: grid; gap: 16px; }
-.today h2 { font-size: 14px; font-weight: 600; }
+.today h2, .sheet h2, .ask h2 { font: 600 11px var(--money); letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
 .hero-spent { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 8px 0 14px; }
-.hero-spent strong { font: 600 44px/1 var(--money); letter-spacing: -0.05em; font-variant-numeric: tabular-nums; }
+.hero-spent strong { font: 600 52px/1 var(--money); letter-spacing: -0.05em; font-variant-numeric: tabular-nums; }
 .hero-spent span { font: 400 15px var(--money); color: var(--thread); }
 /* The budget in payments: each cell is the most one payment may be, so a glance shows how many are left. */
-.cells { display: flex; gap: 4px; height: 10px; }
+.cells { display: flex; gap: 4px; height: 14px; }
 .cells i { flex: 1; background: var(--well); box-shadow: inset 0 0 0 1px var(--seam); border-radius: 3px; overflow: hidden; }
-.cells i::before { content: ''; display: block; height: 100%; width: var(--fill, 0%); background: var(--signed); }
+.cells i::before { content: ''; display: block; height: 100%; width: var(--fill, 0%); background: var(--signed); box-shadow: 0 0 12px var(--signed-dim); }
 .cells-say { margin-top: 8px; font-size: 13px; color: var(--faint); }
 .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: center; gap: 16px 24px; }
 .facts div { display: grid; gap: 1px; }
@@ -160,12 +199,12 @@ dl { margin: 0; }
 @media (max-width: 1320px) { .split { grid-template-columns: minmax(0, 1fr); } .path li { padding: 16px; } }
 .stack { display: grid; gap: 16px; min-width: 0; }
 .sheet { background: var(--pocket); border-radius: var(--r-l); box-shadow: 0 0 0 1px var(--seam); padding: 20px 22px; min-width: 0; }
-.sheet h2 { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+.sheet h2 { margin-bottom: 14px; }
 .sheet > .quiet { font-size: 14px; text-wrap: pretty; }
 
 /* A held payment is the only thing on the page that asks for something, so it's the only thing that glows. */
 .ask { background: var(--held-dim); box-shadow: 0 0 0 1px var(--held-line); border-radius: var(--r-l); padding: 20px 22px; }
-.ask h2 { color: var(--held); font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.ask h2 { color: var(--held); margin-bottom: 6px; }
 .ask-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; padding: 12px 0 0; }
 .ask-row + .ask-row { margin-top: 12px; border-top: 1px solid var(--seam); }
 .ask-amount { font: 600 24px var(--money); letter-spacing: -0.03em; }
@@ -174,7 +213,7 @@ dl { margin: 0; }
 button { font: 600 14px var(--sans); min-height: 40px; padding: 0 16px; border: 0; border-radius: var(--r-s); cursor: pointer; transition: transform 120ms cubic-bezier(0.23, 1, 0.32, 1), background-color 120ms, color 120ms; }
 button:active:not(:disabled) { transform: scale(0.97); }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
-.go { background: var(--signed); color: var(--on-signed); }
+.go { background: var(--signed); color: var(--on-signed); box-shadow: 0 6px 24px -8px var(--signed); }
 .go:hover:not(:disabled) { background: var(--signed-hover); }
 .ghost { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px var(--seam-strong); }
 .ghost:hover:not(:disabled) { background: var(--hover); }
@@ -231,7 +270,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .pick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .pick input, .pick select { font: 400 14px var(--money); color: var(--ink); background: var(--well); border: 0; box-shadow: inset 0 0 0 1px var(--seam); border-radius: var(--r-s); padding: 0 10px; min-height: 40px; min-width: 0; }
 .pick input { flex: 1 1 260px; }
-.note-bar { padding: 14px 18px; border-radius: var(--r-m); background: var(--held-dim); box-shadow: 0 0 0 1px var(--held-soft-line); font-size: 14px; }
+.note-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 14px 18px; border-radius: var(--r-m); background: var(--held-dim); box-shadow: 0 0 0 1px var(--held-soft-line); font-size: 14px; }
 
 @media (max-width: 1100px) {
   .layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
@@ -250,10 +289,18 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .gate[data-outcome='held'] .the-gate { box-shadow: 0 -1px 0 var(--seam), inset 2px 0 0 var(--held); }
   .try-buttons button { flex: 1 1 100%; }
   .verdict { flex-direction: column; align-items: flex-start; gap: 10px; }
-  .who { margin-left: 0; width: 100%; }
+  /* On a phone the bar would eat a quarter of the screen, so it scrolls away, and packs into: logo, pill, theme. */
+  .top { position: static; gap: 8px 10px; }
+  .mark { order: 0; }
+  .link { order: 1; }
+  .theme { order: 2; }
+  .where { order: 3; width: 100%; }
+  .who { order: 4; width: 100%; }
+  .link .via { display: none; }
+  .slam { left: 50%; top: 72%; font-size: 40px; }
   .ledger .why { max-width: 42vw; }
 }
-@media (prefers-reduced-motion: reduce) { button, .path li { transition: none; } .big-stamp, .gate .path li { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } button, .path li { transition: none; } .big-stamp, .gate .path li, .slam, .gate .path-wrap, .gate .the-gate, .link i { animation: none !important; } }
 
 /* The wait: what's in the pocket lifts out and drops back in, and the pocket gives as it lands. */
 .saku-wait { display: inline-flex; flex-direction: column; align-items: center; gap: 12px; color: var(--thread); font-size: 14px; }
@@ -269,7 +316,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .saku-loader { animation: saku-breathe 1.6s ease-in-out infinite; }
 }
 
-/* Theme switch: system, light or dark. A small square in the bar, the same size as its neighbours. */
+/* Theme switch: light or dark. A small square in the bar, the same size as its neighbours. */
 .theme { display: inline-grid; place-items: center; width: 32px; min-height: 32px; padding: 0; border-radius: var(--r-s); background: transparent; color: var(--thread); box-shadow: inset 0 0 0 1px var(--seam-strong); }
 .theme:hover { color: var(--ink); background: var(--hover); }
 .theme svg { width: 16px; height: 16px; }

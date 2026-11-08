@@ -13,8 +13,10 @@ import type { WalletSelector } from '@near-wallet-selector/core';
 import { setupTheme } from './theme';
 setupTheme();
 
-// The wallet libraries expect Node's Buffer as they load, so it's in place before they're imported, further down.
+// The wallet libraries expect Node's Buffer and `global` as they load, so both are in place before they're imported,
+// further down. Without `global`, randombytes threw on load and the page fell back to read-only (seen 2026-11-08).
 (globalThis as unknown as { Buffer: typeof Buffer }).Buffer = Buffer;
+(globalThis as unknown as { global: typeof globalThis }).global = globalThis;
 
 /**
  * Saku's owner page. Anyone can read a contract's budget and history. Approving, rejecting and revoking are
@@ -29,7 +31,12 @@ type Entry = { at: string; what: string; to: string; value: string; note: string
 const q = new URLSearchParams(location.search);
 const network: Network = q.get('network') === 'testnet' ? 'testnet' : 'mainnet';
 const contract = q.get('contract') ?? (network === 'testnet' ? 'allowance.gliana-x402.testnet' : 'allowance.cocoanutx.near');
-const RPC = network === 'testnet' ? 'https://test.rpc.fastnear.com' : 'https://rpc.mainnet.fastnear.com';
+/**
+ * Public NEAR RPCs, tried in turn, starting with whichever answered last. FastNEAR's free endpoints answered 429 to
+ * most reads on 2026-11-08 and the page showed "Couldn't read …: undefined", so they come last. All four allow CORS.
+ */
+const RPCS = network === 'testnet' ? ['https://rpc.testnet.near.org', 'https://test.rpc.fastnear.com', 'https://near-testnet.drpc.org'] : ['https://near.drpc.org', 'https://rpc.mainnet.near.org', 'https://free.rpc.fastnear.com', 'https://rpc.mainnet.fastnear.com'];
+const host = (u: string) => new URL(u).hostname.replace(/^(rpc|free\.rpc|rpc\.mainnet)\./, '');
 const EXPLORER = network === 'testnet' ? 'https://testnet.nearblocks.io' : 'https://nearblocks.io';
 const GAS = '300000000000000';
 
@@ -57,15 +64,46 @@ function until(s: string) {
 /** Real mainnet receipts, for the contract the demo runs on. */
 const PROOF = contract === 'allowance.cocoanutx.near' ? [['Refuelled with NEAR Intents', 'https://basescan.org/tx/0xb383a32b84f02312f1a6f1382f1e047d39bda9788983b52b2f5fa48065943c76'], ['Paid an API over x402', 'https://basescan.org/tx/0x599308125359a2b3d269a0c0e0811547fd0b1023de16c8c08c57a425805c72c3'], ['Refused a $5 attack', 'https://nearblocks.io/txns/G4wPa1TFUXJ5hBMrzfXwPyouQPmRMGkFfx4bCjGg2vdS']] : [];
 
+/** How the page last reached NEAR: shown in the bar, so a busy RPC reads as "retrying", never as a broken contract. */
+const link = { ok: true, via: '', at: 0, why: '' };
+let rpcAt = 0;
+/** The contract itself answered with an error (wrong account, no such method): another RPC would say the same. */
+class ContractError extends Error {}
+
 async function view<T>(method: string, args: object = {}): Promise<T> {
-  const res = await fetch(RPC, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'query', params: { request_type: 'call_function', finality: 'final', account_id: contract, method_name: method, args_base64: btoa(JSON.stringify(args)) } }),
-  });
-  const j = await res.json();
-  if (j.error || j.result?.error) throw new Error(String(j.error?.data ?? j.result?.error));
-  return JSON.parse(new TextDecoder().decode(new Uint8Array(j.result.result))) as T;
+  const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'query', params: { request_type: 'call_function', finality: 'final', account_id: contract, method_name: method, args_base64: btoa(JSON.stringify(args)) } });
+  const tried: string[] = [];
+  for (let n = 0; n < RPCS.length; n++) {
+    const i = (rpcAt + n) % RPCS.length;
+    const name = host(RPCS[i]);
+    try {
+      const res = await fetch(RPCS[i], { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: AbortSignal.timeout(8000) });
+      if (!res.ok) {
+        tried.push(`${name} ${res.status === 429 ? 'busy' : res.status}`);
+        continue;
+      }
+      const j = await res.json();
+      if (j.result?.error) throw new ContractError(String(j.result.error));
+      if (j.error) {
+        const cause = String(j.error.cause?.name ?? '');
+        const why = String(j.error.cause?.info?.error_message ?? j.error.data ?? j.error.message ?? cause);
+        if (/UNKNOWN_ACCOUNT|NO_CONTRACT_CODE|CONTRACT_EXECUTION_ERROR|INVALID_ACCOUNT/.test(cause)) throw new ContractError(why);
+        tried.push(`${name} ${why.slice(0, 40)}`);
+        continue;
+      }
+      if (!j.result?.result) {
+        tried.push(`${name} gave no answer`);
+        continue;
+      }
+      rpcAt = i;
+      Object.assign(link, { ok: true, via: name, at: Date.now(), why: '' });
+      return JSON.parse(new TextDecoder().decode(new Uint8Array(j.result.result))) as T;
+    } catch (e) {
+      if (e instanceof ContractError) throw e;
+      tried.push(`${name} ${(e as Error).name === 'TimeoutError' ? 'timed out' : 'unreachable'}`);
+    }
+  }
+  throw new Error(`No NEAR RPC answered (${tried.join(', ')})`);
 }
 
 /** The USDC this contract's Base address holds. A nicety: if Base's public endpoint is down, the page just leaves it out. */
@@ -122,7 +160,7 @@ const TERM_TEXT: Record<string, [string, string]> = {
 };
 const term = (id: string, label: string) => `<button type="button" class="term" popovertarget="t-${id}">${esc(label)}</button>`;
 const TERMS = Object.entries(TERM_TEXT).map(([id, [name, text]]) => `<div id="t-${id}" popover class="term-pop"><b>${esc(name)}</b><p>${esc(text)}</p></div>`).join('');
-const PITCH = `<section class="pitch"><h1>Give an AI agent a budget, <em>not a key.</em></h1><p class="pitch-say">The agent holds no key that can move money. A NEAR contract owns its wallet on Base through ${term('chainsig', 'Chain Signatures')}, and signs only within the owner’s rules. A stolen agent key is worth one day’s budget.</p></section>`;
+const PITCH = `<section class="pitch"><span class="eyebrow"><i></i>Live on NEAR ${network}</span><h1>Give an AI agent a budget, <em>not a key.</em></h1><p class="pitch-say">The agent holds no key that can move money. A NEAR contract owns its wallet on Base through ${term('chainsig', 'Chain Signatures')}, and signs only within the owner’s rules. A stolen agent key is worth one day’s budget.</p><div class="jump"><a class="btn go" href="#gate">Try to break it</a><a class="btn ghost" href="#dare">Steal with the real key</a></div></section>`;
 const QUESTIONS = `<section class="questions" aria-label="Questions">
   <details><summary>What if the agent’s key is stolen?</summary><p>The thief can only do what the agent can: ask. At most that’s one day’s budget, paid only to sellers the owner chose. Anything else is refused or waits for the owner.</p></details>
   <details><summary>And if the owner’s key is stolen?</summary><p>Then it isn’t safe: the owner can change the rules and pay anyone directly. Keep the owner key in a hardware wallet, never on the machine the agent runs on.</p></details>
@@ -130,7 +168,7 @@ const QUESTIONS = `<section class="questions" aria-label="Questions">
   <details><summary>Is any of this real?</summary><p>Yes. The budget and history above come from a live mainnet contract, and the receipts are real payments. “Steal with it” runs on testnet, so nobody’s money is at stake.</p></details>
   <details><summary>What can’t it do yet?</summary><p>It pays on Base only, with more chains to come. The contract is experimental and hasn’t been audited, so don’t trust it with money you can’t lose.</p></details>
 </section>`;
-const DARE_HTML = `<section class="dare" aria-label="Steal with a real key">
+const DARE_HTML = `<section class="dare" id="dare" aria-label="Steal with a real key">
   <div class="dare-head"><h2>Here’s the agent’s key. Steal with it.</h2><p class="quiet">A real private key for a test agent, published on purpose. Each button sends a real transaction from your browser, on testnet.</p></div>
   <div class="dare-key"><code>${esc(DARE.key)}</code><button type="button" class="ghost" id="dare-copy">Copy</button></div>
   <div class="try-buttons"><button class="stop" data-steal="pay">Steal $5 with it</button><button class="ghost" data-steal="payee">Add yourself as a seller</button><button class="ghost" data-steal="drain">Take the agent’s NEAR</button></div>
@@ -146,8 +184,8 @@ async function steal(what: string, button: HTMLButtonElement) {
     out.innerHTML = `<span class="big-stamp ${tone}">${esc(stamp)}</span><p>${esc(text)}${tx ? ` <a href="https://testnet.nearblocks.io/txns/${esc(tx)}">See the transaction</a>` : ''}</p>`;
   };
   try {
-    const [{ Account }, { KeyPair }, { JsonRpcProvider }, { KeyPairSigner }, { actionCreators }] = await Promise.all([import('@near-js/accounts'), import('@near-js/crypto'), import('@near-js/providers'), import('@near-js/signers'), import('@near-js/transactions')]);
-    const provider = new JsonRpcProvider({ url: 'https://test.rpc.fastnear.com' });
+    const [{ Account }, { KeyPair }, { JsonRpcProvider, FailoverRpcProvider }, { KeyPairSigner }, { actionCreators }] = await Promise.all([import('@near-js/accounts'), import('@near-js/crypto'), import('@near-js/providers'), import('@near-js/signers'), import('@near-js/transactions')]);
+    const provider = new FailoverRpcProvider(['https://rpc.testnet.near.org', 'https://test.rpc.fastnear.com'].map((url) => new JsonRpcProvider({ url })));
     const thief = new Account(DARE.account, provider, new KeyPairSigner(KeyPair.fromString(DARE.key as `ed25519:${string}`)));
     const now = Math.floor(Date.now() / 1000);
     const nonce = `0x${[...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
@@ -175,7 +213,8 @@ async function steal(what: string, button: HTMLButtonElement) {
 }
 
 /** What the contract itself just said to a pretend payment. Anyone can ask, because `check` is a free view. */
-let tried: { kind: string; label: string; answer: string | null } | null = null;
+let tried: { kind: string; label: string; answer: string | null; n: number } | null = null;
+let presses = 0;
 async function tryPayment(p: Policy, kind: string) {
   const now = Math.floor(Date.now() / 1000);
   const seller = p.payees[0];
@@ -186,7 +225,7 @@ async function tryPayment(p: Policy, kind: string) {
   };
   const [label, to, value] = asks[kind];
   const answer = await view<string | null>('check', { agent: p.agent, to, value, valid_after: String(now - 60), valid_before: String(now + 600) });
-  tried = { kind, label, answer };
+  tried = { kind, label, answer, n: ++presses };
   await refresh();
 }
 
@@ -195,7 +234,7 @@ let lastGate = '';
 let lastToday = '';
 let lastAsk = '';
 let triedOnLoad = false;
-async function refresh() {
+async function refresh(): Promise<boolean> {
   try {
     const policy = await view<Policy>('get_policy');
     const upgraded = policy.approval_max !== undefined;
@@ -219,7 +258,7 @@ async function refresh() {
     const outcome = !tried ? '' : !tried.answer ? 'signed' : tried.answer.startsWith('held:') ? 'held' : 'refused';
     const answerLine = !tried ? 'Press one. The live contract answers, and nothing is sent.' : outcome === 'signed' ? 'Inside the rules, so NEAR’s MPC would sign it and the wallet would pay.' : outcome === 'held' ? `Nothing is signed until the owner approves: ${esc(tried.answer!.replace('held: ', ''))}.` : `The contract’s own answer: “${esc(tried.answer)}”. Nothing was signed.`;
     const gateHtml = `
-      <section class="gate" data-outcome="${outcome}" aria-label="Who can move the money">
+      <section class="gate" data-outcome="${outcome}" data-n="${tried?.n ?? 0}" aria-label="Who can move the money">
         ${upgraded && !revoked ? `<div class="gate-head">
           <h2>Try to break it</h2>
           <div class="try-buttons">
@@ -228,13 +267,16 @@ async function refresh() {
             <button class="ghost ${tried?.kind === 'normal' ? 'pressed' : ''}" data-try="normal">$0.002, inside the rules</button>
           </div>
         </div>` : ''}
+        <div class="path-wrap">
         <ol class="path">
           <li><b>Agent</b><span class="does">${revoked ? 'cut off' : 'can only ask'}</span><span class="who-is" title="${esc(policy.agent)}">${revoked ? 'no agent' : esc(short(policy.agent, 24))}</span></li>
           <li class="the-gate"><b>Contract</b><span class="does">${outcome === 'held' ? 'waits for the owner' : outcome === 'refused' ? 'stops it here' : 'checks the owner’s rules'}</span><span class="who-is"><a href="${EXPLORER}/address/${esc(contract)}" title="${esc(contract)}">${esc(short(contract, 24))}</a></span></li>
           <li><b>NEAR MPC</b><span class="does">11 of 17 ${term('mpc', 'MPC')} nodes sign</span><span class="who-is">${esc(policy.signer)}</span></li>
           <li><b>Base wallet</b><span class="does">pays any ${term('x402', 'x402')} seller</span><span class="who-is"><a href="https://basescan.org/address/${esc(policy.from)}">${esc(short(policy.from))}</a></span></li>
         </ol>
-        ${upgraded && !revoked ? `<div class="verdict" role="status">${tried ? `<span class="big-stamp ${outcome}">${outcome === 'signed' ? 'Would sign' : outcome === 'held' ? 'Held' : 'Refused'}</span>` : ''}<p><b>${tried ? esc(tried.label) : ''}</b> ${answerLine}</p></div>` : ''}
+        ${outcome === 'refused' || outcome === 'held' ? `<div class="slam ${outcome}" aria-hidden="true">${outcome === 'held' ? 'Held' : 'Refused'}</div>` : ''}
+        </div>
+        ${upgraded && !revoked ? `<div class="verdict" role="status">${outcome === 'signed' ? '<span class="big-stamp signed">Would sign</span>' : ''}<p><b>${tried ? esc(tried.label) : ''}</b> ${answerLine}</p></div>` : ''}
       </section>`;
     const askHtml = waiting.length ? `<section class="ask" aria-label="Waiting for the owner">
         <h2>${waiting.length === 1 ? 'A payment is' : `${waiting.length} payments are`} waiting for the owner</h2>
@@ -286,7 +328,7 @@ async function refresh() {
         </div>
       </div>`;
     if (!$('rest')) {
-      $('app').innerHTML = `<div class="layout"><aside class="side">${PITCH}<div id="today"></div>${QUESTIONS}</aside><div class="flow"><div id="asking"></div><div id="gate"></div>${DARE_HTML}<div id="rest" class="stack-rest"></div></div></div>${TERMS}`;
+      $('app').innerHTML = `<div class="layout"><aside class="side">${PITCH}<div id="today"></div>${QUESTIONS}</aside><div class="flow"><div id="notice" role="alert"></div><div id="asking"></div><div id="gate"></div>${DARE_HTML}<div id="rest" class="stack-rest"></div></div></div>${TERMS}`;
       $('app').querySelectorAll<HTMLButtonElement>('button[data-steal]').forEach((b) => b.addEventListener('click', () => void steal(b.dataset.steal!, b)));
       $('dare-copy')?.addEventListener('click', () => void navigator.clipboard?.writeText(DARE.key));
     }
@@ -317,17 +359,76 @@ async function refresh() {
         if (confirm('Cut the agent off now? Everything waiting is refused.')) void send('revoke', {}).catch(show);
       });
     }
+    drawLink();
+    return true;
   } catch (e) {
-    show(e);
+    // A busy RPC while the page is up only turns the bar's pill amber: the numbers below are the last good read.
+    if ($('rest') && !(e instanceof ContractError)) {
+      Object.assign(link, { ok: false, why: message(e) });
+      drawLink();
+    } else show(e);
+    return false;
   }
 }
 
+const message = (e: unknown) => String((e as Error)?.message ?? e ?? 'unknown error');
+/**
+ * A failed read or action. Once the page is drawn it stays: the last good numbers are still true, so the error goes in
+ * a note above them (and the bar shows the RPC retrying). Only a page that never loaded is replaced by the error.
+ */
 function show(e: unknown) {
-  $('app').innerHTML = `<div class="note-bar">Couldn’t read <code>${esc(contract)}</code> on ${network}: ${esc((e as Error).message ?? e)}</div>`;
-  lastOk = '';
-  lastGate = '';
-  lastAsk = '';
-  lastToday = '';
+  if (!(e instanceof ContractError)) Object.assign(link, { ok: false, why: message(e) });
+  drawLink();
+  const text = e instanceof ContractError ? `The contract answered with an error: ${message(e)}` : message(e);
+  if ($('rest')) {
+    $('notice').innerHTML = `<div class="note-bar"><span>${esc(text)}</span><button class="ghost" type="button" id="notice-x" aria-label="Dismiss">Dismiss</button></div>`;
+    $('notice-x').addEventListener('click', () => ($('notice').innerHTML = ''));
+    return;
+  }
+  $('app').innerHTML = `<div class="note-bar fail"><span>Couldn’t read <code>${esc(contract)}</code> on ${network}. ${esc(text)}.</span><button class="ghost" type="button" id="again">Try again</button></div>`;
+  $('again').addEventListener('click', () => void poll());
+}
+
+/** Reads every 15 s while the tab is visible. After a failure it waits 10, 20, 40, then 60 s, so a busy RPC can recover. */
+const POLL = 15_000;
+let fails = 0;
+let nextAt = 0;
+let timer = 0;
+async function poll() {
+  clearTimeout(timer);
+  nextAt = 0;
+  const ok = await refresh();
+  if (ok) $('notice')?.replaceChildren();
+  fails = ok ? 0 : fails + 1;
+  schedule(ok ? POLL : Math.min(60_000, 10_000 * 2 ** (fails - 1)));
+}
+function schedule(ms: number) {
+  clearTimeout(timer);
+  nextAt = Date.now() + ms;
+  timer = window.setTimeout(() => (document.hidden ? schedule(POLL) : void poll()), ms);
+  drawLink();
+}
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && Date.now() - link.at > POLL) void poll();
+});
+
+function drawLink() {
+  const el = document.getElementById('link');
+  if (!el) return;
+  const wait = Math.max(0, Math.ceil((nextAt - Date.now()) / 1000));
+  const age = Math.max(0, Math.round((Date.now() - link.at) / 1000));
+  if (!link.ok) {
+    el.className = 'link busy';
+    el.innerHTML = `<i></i>RPC busy<span> · ${nextAt ? `retry in ${wait}s` : 'retrying…'}</span>`;
+    el.title = `${link.why}. Click to try again now.`;
+  } else if (link.at) {
+    el.className = 'link ok';
+    el.innerHTML = `<i></i>Live<span> · ${age < 5 ? 'just now' : `${age}s ago`}</span><span class="via"> via ${esc(link.via)}</span>`;
+    el.title = `Read from ${link.via}${nextAt ? `, next read in ${wait}s` : ''}. Click to read now.`;
+  } else {
+    el.className = 'link';
+    el.innerHTML = '<i></i>Connecting…';
+  }
 }
 
 void (async () => {
@@ -335,8 +436,9 @@ void (async () => {
   const form = document.querySelector<HTMLFormElement>('form.pick')!;
   (form.elements.namedItem('contract') as HTMLInputElement).value = contract;
   (form.elements.namedItem('network') as HTMLSelectElement).value = network;
-  await refresh();
-  setInterval(() => void refresh(), 5000);
+  $('link').addEventListener('click', () => void poll());
+  setInterval(drawLink, 1000);
+  await poll();
   try {
     const [core, myNear, meteor] = await Promise.all([import('@near-wallet-selector/core'), import('@near-wallet-selector/my-near-wallet'), import('@near-wallet-selector/meteor-wallet')]);
     functionCall = core.actionCreators.functionCall as never;
