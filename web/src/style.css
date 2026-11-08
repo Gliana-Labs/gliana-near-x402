@@ -294,6 +294,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .mark { order: 0; }
   .link { order: 1; }
   .theme { order: 2; }
+  .gh { order: 2; }
   .where { order: 3; width: 100%; }
   .who { order: 4; width: 100%; }
   .link .via { display: none; }
@@ -320,6 +321,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .theme { display: inline-grid; place-items: center; width: 32px; min-height: 32px; padding: 0; border-radius: var(--r-s); background: transparent; color: var(--thread); box-shadow: inset 0 0 0 1px var(--seam-strong); }
 .theme:hover { color: var(--ink); background: var(--hover); }
 .theme svg { width: 16px; height: 16px; }
+a.theme { text-decoration: none; }
 body, .gate, .today, .sheet, .dare, .top { transition: background-color 200ms ease, color 200ms ease; }
 @media (prefers-reduced-motion: reduce) { body, .gate, .today, .sheet, .dare, .top { transition: none; } }
 
