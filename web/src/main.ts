@@ -25,7 +25,7 @@ setupTheme();
  * The wallet code loads after the page, and separately: if it ever fails, the budget and history still show.
  */
 type Network = 'mainnet' | 'testnet';
-type Policy = { owner: string; agent: string; from: string; signer: string; per_payment_max: string; daily_limit: string; spent_today: string; paused: boolean; payees: string[]; approval_max?: string; payee_delay_s?: string; waiting_payees?: [string, string][] };
+type Policy = { owner: string; agent: string; from: string; signer: string; per_payment_max: string; daily_limit: string; spent_today: string; paused: boolean; payees: string[]; approval_max?: string; payee_delay_s?: string; waiting_payees?: [string, string][]; max_per_hour?: number; payments_this_hour?: number; monthly_limit?: string; spent_month?: string };
 type Held = { id: string; to: string; value: string; valid_before: string; why: string; asked_at: string; status: string };
 type Entry = { at: string; what: string; to: string; value: string; note: string };
 
@@ -291,6 +291,15 @@ function bindTools(p: Policy) {
     if (p.approval_max && day > Number(p.approval_max)) return tell(`Per day can’t pass what the owner may approve (${usd(p.approval_max)}).`, true);
     void run('set_limits', { per_payment_max: String(per), daily_limit: String(day) });
   });
+  document.getElementById('extra')?.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const f = ev.target as HTMLFormElement;
+    const hour = Math.round(Number((f.elements.namedItem('hour') as HTMLInputElement).value));
+    const month = Math.round(Number((f.elements.namedItem('month') as HTMLInputElement).value) * 1e6);
+    if (!(hour >= 0) || !(month >= 0)) return tell('Use 0 or more.', true);
+    if (month && month < Number(p.daily_limit)) return tell(`The 30-day limit can’t be below the daily one (${usd(p.daily_limit)}).`, true);
+    void run('set_extra_limits', { max_per_hour: hour, monthly_limit: String(month) });
+  });
   document.getElementById('add-seller')?.addEventListener('submit', (ev) => {
     ev.preventDefault();
     const v = ((ev.target as HTMLFormElement).elements.namedItem('payee') as HTMLInputElement).value.trim().toLowerCase();
@@ -385,6 +394,8 @@ async function refresh(): Promise<boolean> {
           ${usdc === null ? '' : `<div><dt>In the wallet</dt><dd class="money">$${usdc.toFixed(3)}</dd></div>`}
           <div><dt>Signs on its own up to</dt><dd class="money">${usd(cap)}</dd></div>
           ${upgraded ? `<div><dt>Owner can approve up to</dt><dd class="money">${usd(policy.approval_max!)}</dd></div>` : ''}
+          ${policy.max_per_hour ? `<div><dt>Payments this hour</dt><dd class="money">${policy.payments_this_hour ?? 0} of ${policy.max_per_hour}</dd></div>` : ''}
+          ${Number(policy.monthly_limit ?? 0) ? `<div><dt>Last 30 days</dt><dd class="money">${usd(policy.spent_month ?? 0)} of ${usd(policy.monthly_limit!)}</dd></div>` : ''}
         </dl>
       </section>`;
     const html = `
@@ -462,6 +473,7 @@ async function refresh(): Promise<boolean> {
     const toolsHtml = owner && upgraded && !revoked ? `<section class="sheet tools" aria-label="Change the rules">
         <h2>Change the rules</h2>
         <form id="limits" class="row-form"><label class="field"><span>Most per payment ($)</span><input name="per" inputmode="decimal" value="${cap / 1e6}"></label><label class="field"><span>Most per day ($)</span><input name="day" inputmode="decimal" value="${daily / 1e6}"></label><button class="ghost">Save limits</button></form>
+        ${policy.max_per_hour !== undefined ? `<form id="extra" class="row-form"><label class="field"><span>Most payments an hour (0 = no limit)</span><input name="hour" inputmode="numeric" value="${policy.max_per_hour}"></label><label class="field"><span>Most per 30 days ($, 0 = no limit)</span><input name="month" inputmode="decimal" value="${Number(policy.monthly_limit ?? 0) / 1e6}"></label><button class="ghost">Save</button></form>` : ''}
         <form id="add-seller" class="row-form"><label class="field grow"><span>Add a seller (Base address)</span><input name="payee" placeholder="0x…" spellcheck="false" autocomplete="off"></label><button class="ghost">Add</button></form>
         <div class="row-form"><p class="faint small grow">Payments to a new seller wait for your OK for ${Math.round(Number(policy.payee_delay_s) / 3600)} h. Each change opens your wallet to confirm.</p><button class="ghost" type="button" id="pause">${policy.paused ? 'Resume the agent' : 'Pause the agent'}</button></div>
         <p id="tools-say" class="small" role="status"></p>

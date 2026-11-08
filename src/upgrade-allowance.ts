@@ -40,4 +40,9 @@ if (process.env.MIGRATE === '1') {
   await account.deployContract(wasm);
 }
 const after = JSON.stringify(await provider.callFunction(ALLOWANCE, 'get_policy', {}));
-console.log(`upgraded ${ALLOWANCE} (${NETWORK}); policy ${before === after ? 'unchanged' : 'CHANGED'}`);
+// New code may add fields to get_policy (2026-11-09: the hourly and 30-day rules); only the fields that were there
+// before have to read the same.
+const [b, a] = [JSON.parse(before) as Record<string, unknown>, JSON.parse(after) as Record<string, unknown>];
+const changed = Object.keys(b).filter((k) => JSON.stringify(b[k]) !== JSON.stringify(a[k]));
+const added = Object.keys(a).filter((k) => !(k in b));
+console.log(`upgraded ${ALLOWANCE} (${NETWORK}); policy ${changed.length ? `CHANGED: ${changed.join(', ')}` : 'unchanged'}${added.length ? `; new fields: ${added.join(', ')}` : ''}`);

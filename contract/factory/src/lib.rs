@@ -52,6 +52,9 @@ pub struct Rules {
     pub payees: Vec<String>,
     pub approval_max: Option<U128>,
     pub payee_delay_s: Option<U64>,
+    /// 0 or none = no limit (2026-11-09).
+    pub max_per_hour: Option<u32>,
+    pub monthly_limit: Option<U128>,
 }
 
 #[near(serializers = [json])]
@@ -95,6 +98,8 @@ impl Factory {
         require!(!rules.payees.is_empty() && rules.payees.len() <= 20, "list 1 to 20 sellers");
         require!(rules.payees.iter().all(|p| is_hex20(p)), "each seller is a 0x address of 40 hex digits");
         require!(rules.payee_delay_s.map_or(true, |d| d.0 <= MOST_DELAY_S), "a new seller's wait is at most 30 days");
+        // Checked here too, so a bad value is refused before any NEAR leaves rather than failing inside the batch.
+        require!(rules.monthly_limit.map_or(true, |m| m.0 == 0 || m.0 >= rules.daily_limit.0), "monthly_limit must be 0 (none) or at least daily_limit");
         require!(self.names.get(&name).is_none(), "that name is taken");
         let allowance = self.child(&name);
         self.agent_of(&name); // panics now, not later, if the agent's id would be too long
@@ -118,6 +123,7 @@ impl Factory {
             "owner": owner, "agent": agent, "signer": self.signer, "path": self.path, "from": from,
             "per_payment_max": rules.per_payment_max, "daily_limit": rules.daily_limit, "payees": rules.payees,
             "approval_max": rules.approval_max, "payee_delay_s": rules.payee_delay_s,
+            "max_per_hour": rules.max_per_hour, "monthly_limit": rules.monthly_limit,
         });
         let agent_near = NearToken::from_yoctonear(deposit.0).saturating_sub(ALLOWANCE_NEAR);
         let make_allowance = Promise::new(allowance.clone())

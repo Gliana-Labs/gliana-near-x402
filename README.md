@@ -167,9 +167,9 @@ Try it — do X, see Y:
    **Check it yourself:** every allowance the factory makes runs exactly
    `contract/factory/res/agent_allowance.wasm` and has no access key at all.
    ```bash
-   curl -s https://rpc.testnet.near.org -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_account","finality":"final","account_id":"verify.saku-factory.testnet"}}' | grep -o '"code_hash":"[^"]*"'
+   curl -s https://rpc.testnet.near.org -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_account","finality":"final","account_id":"checked.saku-factory.testnet"}}' | grep -o '"code_hash":"[^"]*"'
    ```
-   See: `"code_hash":"C2yxhUrBs6fQUu1pCysG6fP6cSRjRaN5iKGyRw1y27eQ"`, which is base58(sha256) of that file
+   See: `"code_hash":"9guzuiHMV1FMDsVPs1nf1D5qFKPDytXwvojEttncawjA"`, which is base58(sha256) of that file
    (`python3 -c "import hashlib;print(hashlib.sha256(open('contract/factory/res/agent_allowance.wasm','rb').read()).hexdigest())"`
    gives the same 32 bytes in hex). `view_access_key_list` on it returns `[]`.
 
@@ -202,6 +202,7 @@ Three rules for the cases a budget alone doesn't cover, in `contract/`:
 | --- | --- |
 | **The owner approves what's unusual** | A payment to a listed seller over the per-payment cap or the day's budget, up to `approval_max`, isn't refused and isn't signed. It waits. The owner calls `approve`, the MPC signs, and the agent reads the signature back from `get_held`. Approving needs a full-access key, so a limited key can't do it |
 | **A new seller needs the owner's OK at first** | For `payee_delay_s` after `add_payee` (fixed when the rules are set, a day by default), every payment to that seller is held for the owner, however small. A seller added by mistake, or at a hijacked agent's request, gets nothing the owner didn't see. (Until 2026-11-09 these were refused outright for the day; holding them lets the owner say yes at once.) `trust_payee` ends the wait early once the owner has seen the seller, for sellers whose payment window is shorter than a human reply (Exa gives 60 s). Every owner call needs 1 yoctoNEAR, so a web wallet's sign-in key alone can't add a seller or change a limit |
+| **Payments an hour and a 30-day budget** | Two rules from NEAR's own [agent policies](https://docs.agentsonintents.com/integration/agent-api/policies-and-limits) (2026-11-09): more payments in an hour than `max_per_hour`, or past `monthly_limit` over 30 days, wait for the owner. Many small payments fast is what a hijacked agent in a loop looks like. 0 means no limit. They live in their own storage slot, so contracts made before them upgraded with a plain code swap and no migration; set them with `set_extra_limits`. Tested on testnet with a real MPC payment: the second in the hour came back `held: too many payments this hour` |
 | **`revoke` in one call** | The agent is cut off, everything waiting is refused, and the money stays put. Coming back takes a new agent account as well as unpausing, so the leaked key stays useless |
 
 A stolen agent key can fill the waiting list (10 at most) and nothing more. Every decision goes in a short history on the contract (`get_history`), refusals included, so the [owner page](https://saku.glianalabs.com) needs no indexer and no server of ours.
@@ -335,7 +336,7 @@ demo/                    the recording script and the demo post.
   with `invalid signature: not for a valid curve point`, i.e. only the
   signature is wrong.
 - **The factory's allowances run the committed code and nothing else:** the
-  `code_hash` of `verify.saku-factory.testnet` equals sha256 of
+  `code_hash` of `checked.saku-factory.testnet` equals sha256 of
   `contract/factory/res/agent_allowance.wasm`, and the account has no access key
   (step 6 shows how to check). Its Base address is derived on-chain from the MPC's
   own answer, and matches the offline derivation.
@@ -366,6 +367,9 @@ limits and policy engines that give AI money without the keys. Point by point:
 - **An attack demo with the log.** A prompt-injected agent sends $5 to an attacker and is refused before anything is
   signed: [`demo/allowance4-session.log`](demo/allowance4-session.log) on mainnet, and live on
   [saku.glianalabs.com](https://saku.glianalabs.com) with a real, published testnet key you can steal with.
+- **Policy, compared with NEAR's own agent policies.** Per-payment, daily and 30-day budgets, payments an hour, a
+  seller allowlist, owner approval for what's unusual, a wait on new sellers, pause and revoke. Not built: time-of-day
+  windows, and more than one asset (it's USDC on Base).
 - **Counterparties.** Instead of scoring a receiver, Saku pays only sellers the owner listed; a newly listed seller's
   payments wait for the owner until it's trusted.
 
@@ -415,8 +419,8 @@ caller's own refund), `on_key`, `on_done` (`#[private]`), `new` (once).
   2:37 video; setting up from the browser (`contract/factory`, `web/src/setup.ts`);
   a payment to a new seller held for the owner instead of refused; every owner call
   needing 1 yoctoNEAR; adding funds and changing rules from the owner page;
-  `trust_payee`; the agent asking for its own budget (`saku_setup` in gliana-ai-mcp); and the security review
-  above with its fixes.
+  `trust_payee`; the agent asking for its own budget (`saku_setup` in gliana-ai-mcp); the security review
+  above with its fixes; and the hourly and 30-day limits.
 - **The seller, GlianaAI, is our existing product** (pay-per-call AI) and is
   not part of the submission; it was not changed for this. Only this client —
   paying with a NEAR account — is the entry.

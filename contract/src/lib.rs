@@ -51,6 +51,25 @@ const MOST_WAITING: usize = 10;
 const MOST_HELD: usize = 30;
 /// Decisions kept in `get_history`, oldest dropped first.
 const MOST_HISTORY: usize = 40;
+const HOUR_NS: u64 = 3_600 * 1_000_000_000;
+/// "Monthly" is a fixed 30-day window, like the daily one: no calendar arithmetic on chain.
+const MONTH_NS: u64 = 30 * DAY_NS;
+/// Where the hourly and 30-day rules live: their own storage slot, not the contract's main state, so a contract
+/// deployed before them upgrades with a plain code swap and no migration (2026-11-09). No slot = no such rule.
+const LIMITS_KEY: &[u8] = b"limits";
+
+/// Two rules from NEAR's own agent policies (docs.agentsonintents.com): how many payments an hour, and a 30-day budget.
+/// 0 means no limit. Spend and count roll over like the daily budget. Payments the owner approved don't count.
+#[near(serializers = [borsh])]
+#[derive(Default)]
+struct Limits {
+    max_per_hour: u32,
+    monthly_limit: u128,
+    hour: u64,
+    hour_count: u32,
+    month: u64,
+    spent_month: u128,
+}
 
 #[near(serializers = [json])]
 pub struct Policy {
@@ -68,6 +87,12 @@ pub struct Policy {
     pub payee_delay_s: U64,
     /// Payees added but not payable yet, with when they become payable (seconds).
     pub waiting_payees: Vec<(String, U64)>,
+    /// 0 = no limit.
+    pub max_per_hour: u32,
+    pub payments_this_hour: u32,
+    /// 0 = no limit. A 30-day window.
+    pub monthly_limit: U128,
+    pub spent_month: U128,
 }
 
 /// A payment waiting for the owner, or the record of what they decided.
@@ -170,8 +195,13 @@ impl Allowance {
         token_version: Option<String>,
         approval_max: Option<U128>,
         payee_delay_s: Option<U64>,
+        max_per_hour: Option<u32>,
+        monthly_limit: Option<U128>,
     ) -> Self {
         require!(per_payment_max.0 > 0 && per_payment_max.0 <= daily_limit.0, "per_payment_max must be 1..=daily_limit");
+        let monthly = monthly_limit.map(|m| m.0).unwrap_or(0);
+        require!(monthly == 0 || monthly >= daily_limit.0, "monthly_limit must be 0 (none) or at least daily_limit");
+        write_limits(&Limits { max_per_hour: max_per_hour.unwrap_or(0), monthly_limit: monthly, ..Default::default() });
         let mut set = IterableSet::new(b"p");
         for p in payees {
             set.insert(hex20(&p).1);
@@ -267,6 +297,10 @@ impl Allowance {
                 self.roll_day();
                 // Counted now, before the signature exists; given back if signing fails (on_signed).
                 self.spent_today += value.0;
+                let mut l = rolled_limits();
+                l.hour_count = l.hour_count.saturating_add(1);
+                l.spent_month = l.spent_month.saturating_add(value.0);
+                write_limits(&l);
                 self.record("signed", &to_key, value.0, "");
                 let digest = self.digest(&to_bytes, value.0, valid_after.0, valid_before.0, &nonce_bytes);
                 self.request_signature(digest, value.0)
@@ -357,6 +391,9 @@ impl Allowance {
                 if day.0 == self.spent_day {
                     self.spent_today = self.spent_today.saturating_sub(value.0);
                 }
+                let mut l = rolled_limits();
+                l.spent_month = l.spent_month.saturating_sub(value.0);
+                write_limits(&l);
                 self.record("sign_failed", "", value.0, "");
                 None
             }
@@ -397,6 +434,17 @@ impl Allowance {
             self.record("payee_added", &key, 0, "");
         }
     }
+    /// The hourly and 30-day rules (0 = none). Owner and 1 yoctoNEAR, like every rule change.
+    #[payable]
+    pub fn set_extra_limits(&mut self, max_per_hour: u32, monthly_limit: U128) {
+        self.only_owner();
+        require!(monthly_limit.0 == 0 || monthly_limit.0 >= self.daily_limit, "monthly_limit must be 0 (none) or at least daily_limit");
+        let mut l = rolled_limits();
+        l.max_per_hour = max_per_hour;
+        l.monthly_limit = monthly_limit.0;
+        write_limits(&l);
+        self.record("limits_changed", "", 0, "");
+    }
     /// Ends a new seller's wait now: the owner has seen it and trusts it, so its payments stop asking.
     /// For sellers whose payment window is shorter than the owner's reply (Exa gives 60 s): without this, every
     /// payment to them would be held and expire for the whole wait (2026-11-09).
@@ -422,6 +470,7 @@ impl Allowance {
 
     pub fn get_policy(&self) -> Policy {
         let today = env::block_timestamp() / DAY_NS;
+        let limits = rolled_limits();
         Policy {
             owner: self.owner.clone(),
             agent: self.agent.clone(),
@@ -436,6 +485,10 @@ impl Allowance {
             approval_max: U128(self.approval_max),
             payee_delay_s: U64(self.payee_delay_s),
             waiting_payees: self.payees.iter().filter_map(|p| self.payee_ready.get(p).filter(|at| **at > now_s()).map(|at| (format!("0x{p}"), U64(*at)))).collect(),
+            max_per_hour: limits.max_per_hour,
+            payments_this_hour: limits.hour_count,
+            monthly_limit: U128(limits.monthly_limit),
+            spent_month: U128(limits.spent_month),
         }
     }
 
@@ -489,6 +542,7 @@ impl Allowance {
         let now = now_s();
         let spent = if env::block_timestamp() / DAY_NS == self.spent_day { self.spent_today } else { 0 };
         let key = hex20(to).1;
+        let limits = rolled_limits();
         if self.paused {
             Verdict::Refuse("paused by the owner")
         } else if *caller != self.agent {
@@ -509,6 +563,11 @@ impl Allowance {
             Verdict::Hold("over the per-payment limit")
         } else if spent + value > self.daily_limit {
             Verdict::Hold("over the daily limit")
+        } else if limits.monthly_limit > 0 && limits.spent_month.saturating_add(value) > limits.monthly_limit {
+            Verdict::Hold("over the 30-day limit")
+        } else if limits.max_per_hour > 0 && limits.hour_count >= limits.max_per_hour {
+            // Many small payments fast is what a hijacked agent in a loop looks like.
+            Verdict::Hold("too many payments this hour")
         } else {
             Verdict::Sign
         }
@@ -573,6 +632,25 @@ impl Allowance {
         env::promise_batch_action_function_call(callback, callback_name, callback_args.to_string().as_bytes(), NearToken::from_yoctonear(0), CALLBACK_GAS);
         env::promise_return(callback);
     }
+}
+
+/// The hourly and 30-day counters as of now (rolled over, not written).
+fn rolled_limits() -> Limits {
+    let mut l: Limits = env::storage_read(LIMITS_KEY).and_then(|b| near_sdk::borsh::from_slice(&b).ok()).unwrap_or_default();
+    let (hour, month) = (env::block_timestamp() / HOUR_NS, env::block_timestamp() / MONTH_NS);
+    if l.hour != hour {
+        l.hour = hour;
+        l.hour_count = 0;
+    }
+    if l.month != month {
+        l.month = month;
+        l.spent_month = 0;
+    }
+    l
+}
+
+fn write_limits(l: &Limits) {
+    env::storage_write(LIMITS_KEY, &near_sdk::borsh::to_vec(l).unwrap_or_else(|_| env::panic_str("limits encode")));
 }
 
 fn now_s() -> u64 {
@@ -664,7 +742,7 @@ mod tests {
 
     fn contract() -> Allowance {
         ctx(accounts(0), 1_700_000_000);
-        Allowance::new(accounts(0), accounts(1), "v1.signer".parse().unwrap(), "gliana-x402".into(), FROM.into(), U128(10_000), U128(25_000), vec![GLIANA.into()], None, None, None, None, Some(U128(1_000_000)), Some(U64(86_400)))
+        Allowance::new(accounts(0), accounts(1), "v1.signer".parse().unwrap(), "gliana-x402".into(), FROM.into(), U128(10_000), U128(25_000), vec![GLIANA.into()], None, None, None, None, Some(U128(1_000_000)), Some(U64(86_400)), None, None)
     }
 
     /// Reference values computed with viem's hashDomain / hashTypedData — the same
@@ -896,6 +974,64 @@ mod tests {
         ctx(accounts(1), 1_700_000_000 + 86_401);
         assert_eq!(c.check(accounts(1), NEW.into(), U128(2000), U64(1_700_086_340), U64(1_700_087_000)), None);
         assert!(c.get_policy().waiting_payees.is_empty());
+    }
+
+    #[test]
+    fn no_hourly_or_30_day_limit_until_the_owner_sets_one() {
+        let mut c = contract();
+        ctx(accounts(1), 1_700_000_000);
+        for _ in 0..2 {
+            ask(&mut c, GLIANA, 2000);
+            assert_eq!(last(&c).0, "signed");
+        }
+        let p = c.get_policy();
+        assert_eq!((p.max_per_hour, p.payments_this_hour, p.monthly_limit.0, p.spent_month.0), (0, 2, 0, 4000));
+    }
+
+    #[test]
+    fn the_third_payment_in_an_hour_waits_for_the_owner_and_the_next_hour_is_fresh() {
+        let mut c = contract();
+        ctx(accounts(0), 1_700_000_000);
+        c.set_extra_limits(2, U128(0));
+        ctx(accounts(1), 1_700_000_000);
+        ask(&mut c, GLIANA, 2000);
+        ask(&mut c, GLIANA, 2000);
+        ask(&mut c, GLIANA, 2000);
+        assert_eq!(last(&c), ("held".to_string(), "too many payments this hour".to_string()));
+        ctx(accounts(1), 1_700_000_000 + 3_600);
+        assert_eq!(c.check(accounts(1), GLIANA.into(), U128(2000), U64(1_700_003_540), U64(1_700_004_000)), None);
+    }
+
+    #[test]
+    fn a_30_day_budget_holds_what_would_pass_it() {
+        let mut c = contract();
+        ctx(accounts(0), 1_700_000_000);
+        c.set_extra_limits(0, U128(30_000));
+        ctx(accounts(1), 1_700_000_000);
+        ask(&mut c, GLIANA, 10_000);
+        ask(&mut c, GLIANA, 10_000);
+        // A new day: the daily budget is fresh, the 30-day one isn't.
+        ctx(accounts(1), 1_700_000_000 + 86_400);
+        c.pay(GLIANA.into(), U128(10_000), U64(1_700_086_340), U64(1_700_087_000), NONCE.into());
+        assert_eq!(last(&c).0, "signed");
+        c.pay(GLIANA.into(), U128(10_000), U64(1_700_086_340), U64(1_700_087_000), NONCE.into());
+        assert_eq!(last(&c), ("held".to_string(), "over the 30-day limit".to_string()));
+    }
+
+    #[test]
+    #[should_panic(expected = "monthly_limit must be 0 (none) or at least daily_limit")]
+    fn a_30_day_budget_below_the_daily_one_is_refused() {
+        let mut c = contract();
+        ctx(accounts(0), 1_700_000_000);
+        c.set_extra_limits(0, U128(1));
+    }
+
+    #[test]
+    #[should_panic(expected = "only the owner")]
+    fn the_agent_cannot_change_the_hourly_limit() {
+        let mut c = contract();
+        ctx(accounts(1), 1_700_000_000);
+        c.set_extra_limits(0, U128(0));
     }
 
     #[test]

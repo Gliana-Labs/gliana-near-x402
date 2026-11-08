@@ -61,6 +61,10 @@ export async function drawSetup(d: SetupDeps) {
       </div>
       <label class="field"><span>Sellers it may pay (one Base address per line)</span><textarea name="sellers" rows="3" spellcheck="false">${DEFAULT_SELLERS.join('\n')}</textarea><small class="faint">Filled in: GlianaAI and Exa. Anyone else is refused. Payments to a seller you add later wait for your OK at first.</small></label>
       <div class="two">
+        <label class="field"><span>Most payments an hour</span><input name="hour" inputmode="numeric" value="20" required><small class="faint">More wait for your OK. Stops an agent stuck in a loop.</small></label>
+        <label class="field"><span>Most per 30 days ($)</span><input name="month" inputmode="decimal" value="1.00" required><small class="faint">0 = no 30-day limit.</small></label>
+      </div>
+      <div class="two">
         <label class="field"><span>New sellers need your OK for (hours)</span><input name="wait" inputmode="numeric" value="24" required></label>
         <label class="field"><span>NEAR for the agent’s gas</span><input name="gas" inputmode="decimal" value="0.5" required></label>
       </div>
@@ -132,10 +136,14 @@ export async function drawSetup(d: SetupDeps) {
     const per = micro(field('per').value);
     const day = micro(field('day').value);
     const wait = Math.round(Number(field('wait').value) * 3600);
+    const hour = Math.round(Number(field('hour').value));
+    const month = micro(field('month').value);
     const problem = !sellers.length ? 'List at least one seller.'
       : sellers.find((s) => !/^0x[0-9a-f]{40}$/.test(s)) ? `“${sellers.find((s) => !/^0x[0-9a-f]{40}$/.test(s))}” isn’t a Base address (0x and 40 hex digits).`
       : !(per > 0) || !(day >= per) ? 'The most per payment must be above $0 and no more than the most per day.'
       : !(wait >= 0 && wait <= 30 * 86400) ? 'New sellers need your OK for 0 to 720 hours.'
+      : !(hour >= 0) ? 'Payments an hour: 0 (no limit) or more.'
+      : !(month >= 0) || (month > 0 && month < day) ? 'The 30-day limit is 0 (none) or at least the daily one.'
       : !(Number(field('gas').value) >= 0.5) ? 'Give the agent at least 0.5 NEAR for gas.' : '';
     if (problem) return say(`<p class="bad-text">${d.esc(problem)}</p>`);
     const child = `${name()}.${d.factory}`;
@@ -143,7 +151,7 @@ export async function drawSetup(d: SetupDeps) {
     make.disabled = true;
     say('<p class="quiet">Confirm in your wallet…</p>');
     try {
-      await d.sendTo(d.factory, 'create', { name: name(), agent_key: agentKey.pub, rules: { per_payment_max: String(per), daily_limit: String(day), payees: sellers, payee_delay_s: String(wait) } }, nearToYocto(String(total())), back);
+      await d.sendTo(d.factory, 'create', { name: name(), agent_key: agentKey.pub, rules: { per_payment_max: String(per), daily_limit: String(day), payees: sellers, payee_delay_s: String(wait), max_per_hour: hour, monthly_limit: String(month) } }, nearToYocto(String(total())), back);
       location.href = back;
     } catch (e) {
       make.disabled = false;
