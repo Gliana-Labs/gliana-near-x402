@@ -23,8 +23,10 @@ use near_sdk::serde_json::json;
 use near_sdk::store::LookupMap;
 use near_sdk::{env, ext_contract, near, require, AccountId, Allowance, Gas, NearToken, PanicOnDefault, Promise, PublicKey};
 
-/// The allowance contract, built first (`cargo near build` in contract/). Each allowance gets its own copy.
-const ALLOWANCE_WASM: &[u8] = include_bytes!("../../target/near/agent_allowance.wasm");
+/// The allowance contract each new allowance gets, committed so the factory builds from a fresh clone and anyone can
+/// check it: the `code_hash` of every allowance this factory makes is base58(sha256) of this file.
+/// `npm run factory:build` rebuilds contract/ and copies it here first.
+const ALLOWANCE_WASM: &[u8] = include_bytes!("../res/agent_allowance.wasm");
 /// Locked as the allowance's storage: 1 NEAR per 100 KB, for ~220 KB of code plus its state. Given back only if the
 /// account is ever deleted, which nothing here does.
 pub const ALLOWANCE_NEAR: NearToken = NearToken::from_millinear(2_500);

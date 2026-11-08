@@ -7,9 +7,11 @@ only ask, so a stolen key is worth one day's budget at most. It refuels itself
 with NEAR Intents and pays any x402 API. *Saku* is Indonesian for pocket, as in
 *uang saku*: an allowance. Built by [GlianaAI](https://ai.glianalabs.com).
 
-**See it live, nothing to install:** [the owner page](https://gliana-labs.github.io/gliana-near-x402/) reads the budget and history straight from the contract. It opens with the live contract refusing a $5 attack, and it publishes a real test agent's private key for you to steal with: each button sends a real testnet transaction from your browser. No wallet, no install.
+**See it live, nothing to install:** [saku.glianalabs.com](https://saku.glianalabs.com) reads the budget and history straight from the mainnet contract. It opens with the live contract refusing a $5 attack, and it publishes a real test agent's private key for you to steal with: each button sends a real testnet transaction from your browser. No wallet, no install.
 
-**Demo video (1:46):** [on X](https://x.com/Gliana_agent/status/2118984586587975724) · [demo/saku-demo.mp4](demo/saku-demo.mp4). Refuel, a paid call, and a prompt-injected $5 payment refused, from real mainnet runs.
+**Set up your own, from the browser:** [saku.glianalabs.com/?new&network=testnet](https://saku.glianalabs.com/?new&network=testnet). One wallet transaction makes your allowance and your agent's account; the contract is made with no key of its own, so nobody can change its code afterwards ([how, step 6](#the-safety-layer-an-allowance-enforced-on-near)).
+
+**Demo video (2:37):** [demo/saku-demo.mp4](demo/saku-demo.mp4) (first cut [on X](https://x.com/Gliana_agent/status/2118984586587975724)). From real mainnet runs: it refuels, pays Exa for a web search, has a payment over its limit held until the owner approves, refuses a prompt-injected $5 payment, and shows what a stolen agent key is worth.
 
 ## Under it: pay for AI with a NEAR account — no EVM private key anywhere
 
@@ -162,6 +164,15 @@ Try it — do X, see Y:
    made in your browser and never leaves it. Verified on testnet 2026-11-08: address matches the off-chain
    derivation, a `pay` from the new agent got its MPC signature in 17 s, an owner call without 1 yoctoNEAR refused.
 
+   **Check it yourself:** every allowance the factory makes runs exactly
+   `contract/factory/res/agent_allowance.wasm` and has no access key at all.
+   ```bash
+   curl -s https://rpc.testnet.near.org -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_account","finality":"final","account_id":"readme.saku-factory.testnet"}}' | grep -o '"code_hash":"[^"]*"'
+   ```
+   See: `"code_hash":"HTt73TZDSB58NkvxxyYTbGgustKBaBD4B8KYkvWBxxR1"`, which is base58(sha256) of that file
+   (`python3 -c "import hashlib;print(hashlib.sha256(open('contract/factory/res/agent_allowance.wasm','rb').read()).hexdigest())"`
+   gives the same 32 bytes in hex). `view_access_key_list` on it returns `[]`.
+
    Or **from a terminal** (needs a testnet account key file):
    ```bash
    npm run contract:build
@@ -193,7 +204,7 @@ Three rules for the cases a budget alone doesn't cover, in `contract/`:
 | **A new seller needs the owner's OK at first** | For `payee_delay_s` after `add_payee` (fixed when the rules are set, a day by default), every payment to that seller is held for the owner, however small. A seller added by mistake, or at a hijacked agent's request, gets nothing the owner didn't see. (Until 2026-11-09 these were refused outright for the day; holding them lets the owner say yes at once.) Every owner call needs 1 yoctoNEAR, so a web wallet's sign-in key alone can't add a seller or change a limit |
 | **`revoke` in one call** | The agent is cut off, everything waiting is refused, and the money stays put. Coming back takes a new agent account as well as unpausing, so the leaked key stays useless |
 
-A stolen agent key can fill the waiting list (10 at most) and nothing more. Every decision goes in a short history on the contract (`get_history`), refusals included, so the [owner page](https://gliana-labs.github.io/gliana-near-x402/) needs no indexer and no server of ours.
+A stolen agent key can fill the waiting list (10 at most) and nothing more. Every decision goes in a short history on the contract (`get_history`), refusals included, so the [owner page](https://saku.glianalabs.com) needs no indexer and no server of ours.
 
 **Verified on live testnet with the real MPC, 2026-11-07** (`allowance.gliana-x402.testnet`, upgraded in place, so the same Base address): an ordinary payment signed; one over the cap held, approved, and its signature recovered to the contract's address; another held and rejected; a new seller refused until its wait ends (held for the owner since 2026-11-09, checked on the same contract); revoke, then coming back with a chosen agent. Run it yourself, free, against your own testnet allowance:
 
@@ -203,7 +214,7 @@ NEAR_NETWORK=testnet ALLOWANCE=allowance.<you> AGENT_KEY_FILE=~/.near-gliana/age
 
 See: `PASS` on each line.
 
-**Mainnet:** `allowance.cocoanutx.near` runs these rules too, upgraded in place on 2026-11-07, so it keeps the same Base address and the receipts below still stand. Its first run under the new rules is still to be recorded.
+**Mainnet:** `allowance.cocoanutx.near` runs these rules too, upgraded in place (2026-11-07, and 2026-11-09 for the 1-yoctoNEAR owner calls), so it keeps the same Base address. Run 4 under these rules, recorded 2026-11-08 ([`demo/allowance4-session.log`](demo/allowance4-session.log)): Exa paid $0.001 ([Base tx](https://basescan.org/tx/0x5f1bfc94c4d9206a44fcda36f8d2a2434189ddeeacec102e59b9634091464f81)); a $0.018 image held, approved by the owner, then paid ([Base tx](https://basescan.org/tx/0x694690c251c2fbd082f55764862bad70450bbf8281d79ca903e525ec288dd56f)); the $5 attack refused.
 
 ### Get told when a payment is held
 
@@ -217,7 +228,7 @@ Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to get them on Telegram, or `ONC
 
 ### Steal with a real key
 
-The [owner page](https://gliana-labs.github.io/gliana-near-x402/) publishes a private key for `agent.gliana-x402.testnet` on purpose (`web/src/dare-key.ts`). It's a NEAR function-call key that may call only `pay` on the testnet allowance. Try it from the page, or:
+The [owner page](https://saku.glianalabs.com) publishes a private key for `agent.gliana-x402.testnet` on purpose (`web/src/dare-key.ts`). It's a NEAR function-call key that may call only `pay` on the testnet allowance. Try it from the page, or:
 
 ```bash
 npx tsx src/dare-check.ts
@@ -315,12 +326,18 @@ demo/                    the recording script and the demo post.
   correct in every field but with a deliberately fake signature is rejected
   with `invalid signature: not for a valid curve point`, i.e. only the
   signature is wrong.
+- **The factory's allowances run the committed code and nothing else:** the
+  `code_hash` of `readme.saku-factory.testnet` equals sha256 of
+  `contract/factory/res/agent_allowance.wasm`, and the account has no access key
+  (step 6 shows how to check). Its Base address is derived on-chain from the MPC's
+  own answer, and matches the offline derivation.
 - **Measured: ~15 s per MPC signature.** Comfortable inside a 900 s x402
   window, not interactive. Said plainly because a demo that hides it is lying.
 
 ## Honest limits
 
-- **Experimental and unaudited.** Don't trust it with money you can't lose. Whoever holds the contract account's own key can replace its code, and on this demo that key still exists. In real use, delete it.
+- **Experimental and unaudited.** Don't trust it with money you can't lose. That's also why setting up from the browser is open on testnet only: mainnet waits for an audit.
+- **The mainnet demo was set up from a terminal, so its account still has a key** that could replace its code (we keep it to improve the demo). Allowances made by the factory have none; for a terminal setup in real use, delete it.
 - **The mainnet agent still holds a full-access key on its own account,** because refuelling spends its NEAR. The contract limits what that key can do with the Base wallet, not with that NEAR. Only a `pay`-only key closes that, as on testnet.
 - **Base (EVM) only, for now.** More chains are the next step: other EVM chains with
   USDC need little beyond their domain separator. Solana's `exact` scheme signs a
@@ -338,6 +355,11 @@ demo/                    the recording script and the demo post.
 - **Built for NEAR HACKATHON**, inside the window (it opened with the
   announcement on 2026-10-19; first commit 2026-10-20). Everything in this
   repository is hackathon work.
+- **Added after the first submission (2026-11-07), still inside the window:**
+  run 4 on mainnet (Exa, a held payment approved, the attack refused) and the
+  2:37 video; setting up from the browser (`contract/factory`, `web/src/setup.ts`);
+  a payment to a new seller held for the owner instead of refused; every owner call
+  needing 1 yoctoNEAR; adding funds and changing rules from the owner page.
 - **The seller, GlianaAI, is our existing product** (pay-per-call AI) and is
   not part of the submission; it was not changed for this. Only this client —
   paying with a NEAR account — is the entry.

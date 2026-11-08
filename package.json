@@ -12,7 +12,7 @@
     "contract:build": "cd contract && cargo near build non-reproducible-wasm",
     "contract:test": "cd contract && cargo test",
     "allowance:deploy": "tsx src/deploy-allowance.ts",
-    "factory:build": "cd contract/factory && cargo near build non-reproducible-wasm",
+    "factory:build": "npm run contract:build && cp contract/target/near/agent_allowance.wasm contract/factory/res/ && cd contract/factory && cargo near build non-reproducible-wasm",
     "factory:deploy": "tsx src/deploy-factory.ts",
     "allowance:pay": "tsx src/policy-demo.ts",
     "refuel": "tsx src/refuel-cli.ts",
