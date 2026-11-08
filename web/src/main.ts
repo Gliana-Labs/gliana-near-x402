@@ -184,9 +184,24 @@ async function steal(what: string, button: HTMLButtonElement) {
     out.innerHTML = `<span class="big-stamp ${tone}">${esc(stamp)}</span><p>${esc(text)}${tx ? ` <a href="https://testnet.nearblocks.io/txns/${esc(tx)}">See the transaction</a>` : ''}</p>`;
   };
   try {
-    const [{ Account }, { KeyPair }, { JsonRpcProvider, FailoverRpcProvider }, { KeyPairSigner }, { actionCreators }] = await Promise.all([import('@near-js/accounts'), import('@near-js/crypto'), import('@near-js/providers'), import('@near-js/signers'), import('@near-js/transactions')]);
-    const provider = new FailoverRpcProvider(['https://rpc.testnet.near.org', 'https://test.rpc.fastnear.com'].map((url) => new JsonRpcProvider({ url })));
-    const thief = new Account(DARE.account, provider, new KeyPairSigner(KeyPair.fromString(DARE.key as `ed25519:${string}`)));
+    const [{ Account }, { KeyPair }, { JsonRpcProvider }, { KeyPairSigner }, { actionCreators }] = await Promise.all([import('@near-js/accounts'), import('@near-js/crypto'), import('@near-js/providers'), import('@near-js/signers'), import('@near-js/transactions')]);
+    // Next RPC only when one is busy or unreachable. Not near-js's FailoverRpcProvider: it treats the network's own
+    // refusal ("isn't allowed by the access key") as a dead RPC and answers "Exceeded 2 providers" (2026-11-08).
+    const urls = ['https://rpc.testnet.near.org', 'https://test.rpc.fastnear.com'];
+    const busy = (e: unknown) => /429|too many|failed to fetch|fetch failed|networkerror|load failed|timed? ?out|50[234]/i.test(String((e as Error)?.message ?? e));
+    const signer = new KeyPairSigner(KeyPair.fromString(DARE.key as `ed25519:${string}`));
+    const thief = {
+      async signAndSendTransaction(tx: Parameters<InstanceType<typeof Account>['signAndSendTransaction']>[0]) {
+        for (const [i, url] of urls.entries()) {
+          try {
+            return await new Account(DARE.account, new JsonRpcProvider({ url }), signer).signAndSendTransaction(tx);
+          } catch (e) {
+            if (!busy(e) || i === urls.length - 1) throw e;
+          }
+        }
+        throw new Error('no testnet RPC answered');
+      },
+    };
     const now = Math.floor(Date.now() / 1000);
     const nonce = `0x${[...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
     const GAS = 30_000_000_000_000n;
