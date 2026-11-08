@@ -391,6 +391,18 @@ impl Allowance {
             self.record("payee_added", &key, 0, "");
         }
     }
+    /// Ends a new seller's wait now: the owner has seen it and trusts it, so its payments stop asking.
+    /// For sellers whose payment window is shorter than the owner's reply (Exa gives 60 s): without this, every
+    /// payment to them would be held and expire for the whole wait (2026-11-09).
+    #[payable]
+    pub fn trust_payee(&mut self, payee: String) {
+        self.only_owner();
+        let key = hex20(&payee).1;
+        require!(self.payees.contains(&key), "that seller isn't on the list");
+        if self.payee_ready.remove(&key).is_some() {
+            self.record("payee_trusted", &key, 0, "");
+        }
+    }
     #[payable]
     pub fn remove_payee(&mut self, payee: String) {
         self.only_owner();
@@ -847,6 +859,30 @@ mod tests {
         ctx(accounts(1), 1_700_000_000 + 86_401);
         assert_eq!(c.check(accounts(1), NEW.into(), U128(2000), U64(1_700_086_340), U64(1_700_087_000)), None);
         assert!(c.get_policy().waiting_payees.is_empty());
+    }
+
+    #[test]
+    fn the_owner_can_end_a_new_sellers_wait() {
+        const NEW: &str = "0x1111111111111111111111111111111111111111";
+        let mut c = contract();
+        ctx(accounts(0), 1_700_000_000);
+        c.add_payee(NEW.into());
+        c.trust_payee(NEW.into());
+        assert!(c.get_policy().waiting_payees.is_empty());
+        assert_eq!(last(&c).0, "payee_trusted");
+        ctx(accounts(1), 1_700_000_000);
+        ask(&mut c, NEW, 2000);
+        assert_eq!(last(&c).0, "signed");
+    }
+
+    #[test]
+    #[should_panic(expected = "only the owner")]
+    fn the_agent_cannot_trust_a_seller() {
+        let mut c = contract();
+        ctx(accounts(0), 1_700_000_000);
+        c.add_payee("0x1111111111111111111111111111111111111111".into());
+        ctx(accounts(1), 1_700_000_000);
+        c.trust_payee("0x1111111111111111111111111111111111111111".into());
     }
 
     #[test]

@@ -155,7 +155,7 @@ async function sendTo(receiver: string, method: string, args: object, deposit: b
 
 const WORDS: Record<string, [string, string]> = {
   signed: ['Signed', 'ok'], held: ['Held', 'wait'], refused: ['Refused', 'bad'], approved: ['Approved', 'ok'], rejected: ['Rejected', 'bad'], sign_failed: ['Sign failed', 'bad'],
-  revoked: ['Revoked', 'bad'], payee_added: ['Seller added', 'note'], payee_removed: ['Seller removed', 'note'], limits_changed: ['Limits changed', 'note'], paused: ['Paused', 'bad'], resumed: ['Resumed', 'ok'],
+  revoked: ['Revoked', 'bad'], payee_added: ['Seller added', 'note'], payee_trusted: ['Seller trusted', 'note'], payee_removed: ['Seller removed', 'note'], limits_changed: ['Limits changed', 'note'], paused: ['Paused', 'bad'], resumed: ['Resumed', 'ok'],
 };
 
 function header(owner?: string) {
@@ -371,7 +371,7 @@ async function refresh(): Promise<boolean> {
     const askHtml = waiting.length ? `<section class="ask" aria-label="Waiting for the owner">
         <h2>${waiting.length === 1 ? 'A payment is' : `${waiting.length} payments are`} waiting for the owner</h2>
         <p class="quiet" style="font-size:14px">Nothing is signed until the owner decides.${owner ? '' : ' Connect the owner’s wallet to decide.'}</p>
-        ${waiting.map((h) => `<div class="ask-row"><div><span class="ask-amount">${usd(h.value)}</span> to ${baseLink(`0x${h.to}`)}<div class="faint" style="font-size:13px">${esc(h.why)} · expires ${esc(until(h.valid_before))}</div></div><div class="ask-buttons"><button class="go" data-act="approve" data-id="${esc(h.id)}" ${owner ? '' : 'disabled'}>Approve</button><button class="ghost" data-act="reject" data-id="${esc(h.id)}" ${owner ? '' : 'disabled'}>Reject</button></div></div>`).join('')}
+        ${waiting.map((h) => `<div class="ask-row"><div><span class="ask-amount">${usd(h.value)}</span> to ${baseLink(`0x${h.to}`)}<div class="faint" style="font-size:13px">${esc(h.why)} · expires ${esc(until(h.valid_before))}${owner && h.why.includes('new seller') ? ' · trust the seller below so the next ones go through' : ''}</div></div><div class="ask-buttons"><button class="go" data-act="approve" data-id="${esc(h.id)}" ${owner ? '' : 'disabled'}>Approve</button><button class="ghost" data-act="reject" data-id="${esc(h.id)}" ${owner ? '' : 'disabled'}>Reject</button></div></div>`).join('')}
       </section>` : '';
     const todayHtml = `      <section class="today" aria-label="Today's budget">
         <div class="today-money">
@@ -411,7 +411,7 @@ async function refresh(): Promise<boolean> {
             <h2>Sellers it may pay</h2>
             ${policy.payees.map((p) => {
               const wait = policy.waiting_payees?.find(([w]) => w === p);
-              return `<div class="line"><span>${baseLink(p)}</span><span class="line-end">${wait ? `<span class="soon" title="Payments to it wait for the owner until then">asks the owner, ${esc(until(wait[1]).replace('in ', 'for '))}</span>` : '<span class="ready">Payable</span>'}${owner && !revoked ? `<button class="ghost tiny" type="button" data-remove="${esc(p)}" aria-label="Remove ${esc(seller(p))}">Remove</button>` : ''}</span></div>`;
+              return `<div class="line"><span>${baseLink(p)}</span><span class="line-end">${wait ? `<span class="soon" title="Payments to it wait for the owner until then">asks the owner, ${esc(until(wait[1]).replace('in ', 'for '))}</span>` : '<span class="ready">Payable</span>'}${owner && !revoked && wait ? `<button class="ghost tiny" type="button" data-trust="${esc(p)}" title="End the wait: its payments stop asking you">Trust now</button>` : ''}${owner && !revoked ? `<button class="ghost tiny" type="button" data-remove="${esc(p)}" aria-label="Remove ${esc(seller(p))}">Remove</button>` : ''}</span></div>`;
             }).join('')}
             ${upgraded ? `<p class="faint" style="font-size:13px;margin-top:10px">For ${Math.round(Number(policy.payee_delay_s) / 3600)} hours after a seller is added, every payment to it waits for the owner’s OK, so nothing reaches a new seller unseen.</p>` : ''}
           </section>
@@ -427,13 +427,14 @@ async function refresh(): Promise<boolean> {
       $('app').innerHTML = `<div class="layout"><aside class="side">${PITCH}<div id="today"></div><div id="mine"></div>${QUESTIONS}</aside><div class="flow"><div id="notice" role="alert"></div><div id="asking"></div><div id="gate"></div>${upgraded && PROOF.length ? DARE_HTML : ''}<div id="rest" class="stack-rest"></div><div id="owner-tools"></div></div></div>${TERMS}`;
       // One listener for the buttons inside parts that redraw: copy, and the owner's per-seller remove.
       $('app').addEventListener('click', (ev) => {
-        const b = (ev.target as HTMLElement).closest<HTMLButtonElement>('button[data-copy], button[data-remove]');
+        const b = (ev.target as HTMLElement).closest<HTMLButtonElement>('button[data-copy], button[data-remove], button[data-trust]');
         if (!b) return;
         if (b.dataset.copy) {
           void navigator.clipboard?.writeText(b.dataset.copy);
           b.textContent = 'Copied';
           setTimeout(() => (b.textContent = 'Copy'), 1500);
         } else if (b.dataset.remove) void send('remove_payee', { payee: b.dataset.remove }).catch(show);
+        else if (b.dataset.trust) void send('trust_payee', { payee: b.dataset.trust }).catch(show);
       });
       $('app').querySelectorAll<HTMLButtonElement>('button[data-steal]').forEach((b) => b.addEventListener('click', () => void steal(b.dataset.steal!, b)));
       $('dare-copy')?.addEventListener('click', () => void navigator.clipboard?.writeText(DARE.key));

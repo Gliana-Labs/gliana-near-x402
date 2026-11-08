@@ -167,9 +167,9 @@ Try it — do X, see Y:
    **Check it yourself:** every allowance the factory makes runs exactly
    `contract/factory/res/agent_allowance.wasm` and has no access key at all.
    ```bash
-   curl -s https://rpc.testnet.near.org -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_account","finality":"final","account_id":"readme.saku-factory.testnet"}}' | grep -o '"code_hash":"[^"]*"'
+   curl -s https://rpc.testnet.near.org -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_account","finality":"final","account_id":"proof.saku-factory.testnet"}}' | grep -o '"code_hash":"[^"]*"'
    ```
-   See: `"code_hash":"HTt73TZDSB58NkvxxyYTbGgustKBaBD4B8KYkvWBxxR1"`, which is base58(sha256) of that file
+   See: `"code_hash":"5EL7TxqGUUdAxUcUWj43YEnBWm1NXDhgSNMvTRS3Z9DC"`, which is base58(sha256) of that file
    (`python3 -c "import hashlib;print(hashlib.sha256(open('contract/factory/res/agent_allowance.wasm','rb').read()).hexdigest())"`
    gives the same 32 bytes in hex). `view_access_key_list` on it returns `[]`.
 
@@ -201,7 +201,7 @@ Three rules for the cases a budget alone doesn't cover, in `contract/`:
 | Rule | What happens |
 | --- | --- |
 | **The owner approves what's unusual** | A payment to a listed seller over the per-payment cap or the day's budget, up to `approval_max`, isn't refused and isn't signed. It waits. The owner calls `approve`, the MPC signs, and the agent reads the signature back from `get_held`. Approving needs a full-access key, so a limited key can't do it |
-| **A new seller needs the owner's OK at first** | For `payee_delay_s` after `add_payee` (fixed when the rules are set, a day by default), every payment to that seller is held for the owner, however small. A seller added by mistake, or at a hijacked agent's request, gets nothing the owner didn't see. (Until 2026-11-09 these were refused outright for the day; holding them lets the owner say yes at once.) Every owner call needs 1 yoctoNEAR, so a web wallet's sign-in key alone can't add a seller or change a limit |
+| **A new seller needs the owner's OK at first** | For `payee_delay_s` after `add_payee` (fixed when the rules are set, a day by default), every payment to that seller is held for the owner, however small. A seller added by mistake, or at a hijacked agent's request, gets nothing the owner didn't see. (Until 2026-11-09 these were refused outright for the day; holding them lets the owner say yes at once.) `trust_payee` ends the wait early once the owner has seen the seller, for sellers whose payment window is shorter than a human reply (Exa gives 60 s). Every owner call needs 1 yoctoNEAR, so a web wallet's sign-in key alone can't add a seller or change a limit |
 | **`revoke` in one call** | The agent is cut off, everything waiting is refused, and the money stays put. Coming back takes a new agent account as well as unpausing, so the leaked key stays useless |
 
 A stolen agent key can fill the waiting list (10 at most) and nothing more. Every decision goes in a short history on the contract (`get_history`), refusals included, so the [owner page](https://saku.glianalabs.com) needs no indexer and no server of ours.
@@ -327,7 +327,7 @@ demo/                    the recording script and the demo post.
   with `invalid signature: not for a valid curve point`, i.e. only the
   signature is wrong.
 - **The factory's allowances run the committed code and nothing else:** the
-  `code_hash` of `readme.saku-factory.testnet` equals sha256 of
+  `code_hash` of `proof.saku-factory.testnet` equals sha256 of
   `contract/factory/res/agent_allowance.wasm`, and the account has no access key
   (step 6 shows how to check). Its Base address is derived on-chain from the MPC's
   own answer, and matches the offline derivation.
