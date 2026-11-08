@@ -149,7 +149,8 @@ async function send(method: string, args: object, deposit = '1') {
 async function sendTo(receiver: string, method: string, args: object, deposit: bigint, back: string) {
   if (!selector || !functionCall) throw new Error('Connect a wallet first.');
   const wallet = await selector.wallet();
-  // MyNearWallet leaves the page to sign and comes back to `back`; Meteor signs in a popup and returns here.
+  // Meteor signs in a popup and returns here; `back` is for a wallet that leaves the page to sign. MyNearWallet was
+  // dropped in Nov 2026: it stopped accepting new app connections.
   await wallet.signAndSendTransaction({ receiverId: receiver, actions: [functionCall(method, args, BigInt(GAS), deposit)] as never, callbackUrl: new URL(back, location.href).href } as never);
 }
 
@@ -164,12 +165,12 @@ function header(owner?: string) {
   if (!selector) return;
   $('who').innerHTML = me
     ? `<span>${esc(me)}${setupMode ? '' : mine ? ' · owner' : ' · not the owner'}</span><button class="ghost" id="out">Disconnect</button>`
-    : `<span>${setupMode ? 'Connect' : 'Owner? Connect'}</span><button class="ghost" id="connect-my">MyNearWallet</button><button class="ghost" id="connect-meteor">Meteor</button>`;
+    : `<span>${setupMode ? 'Connect' : 'Owner? Connect'}</span><button class="ghost" id="connect-meteor">Meteor</button>`;
   $('who').querySelector('#out')?.addEventListener('click', async () => {
     await (await selector!.wallet()).signOut();
     void redraw();
   });
-  for (const [id, wallet] of [['connect-my', 'my-near-wallet'], ['connect-meteor', 'meteor-wallet']] as const) {
+  for (const [id, wallet] of [['connect-meteor', 'meteor-wallet']] as const) {
     $('who').querySelector(`#${id}`)?.addEventListener('click', async () => {
       const w = (await selector!.wallet(wallet)) as unknown as { signIn: (o: { contractId: string; methodNames: string[] }) => Promise<unknown> };
       await w.signIn({ contractId: setupMode ? FACTORY : contract, methodNames: [] });
@@ -578,9 +579,9 @@ void (async () => {
   if (setupMode) await drawSetup({ network, factory: FACTORY, esc, viewOf, signedIn, sendTo });
   else await poll();
   try {
-    const [core, myNear, meteor] = await Promise.all([import('@near-wallet-selector/core'), import('@near-wallet-selector/my-near-wallet'), import('@near-wallet-selector/meteor-wallet')]);
+    const [core, meteor] = await Promise.all([import('@near-wallet-selector/core'), import('@near-wallet-selector/meteor-wallet')]);
     functionCall = core.actionCreators.functionCall as never;
-    selector = await core.setupWalletSelector({ network, modules: [myNear.setupMyNearWallet(), meteor.setupMeteorWallet()] });
+    selector = await core.setupWalletSelector({ network, modules: [meteor.setupMeteorWallet()] });
     let seen = signedIn();
     selector.store.observable.subscribe(() => {
       // Redraw only when the account changes: the store also ticks on things the page doesn't show.
