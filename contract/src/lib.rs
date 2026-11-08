@@ -92,7 +92,8 @@ pub struct Held {
 #[derive(Clone)]
 pub struct Entry {
     pub at: U64,
-    /// signed, held, refused, approved, rejected, sign_failed, revoked, payee_added, payee_removed, limits_changed, paused, resumed
+    /// signed, held, refused, approved, rejected, sign_failed, revoked, payee_added, payee_trusted, payee_removed,
+    /// limits_changed, paused, resumed, owner_paid, agent_changed
     pub what: String,
     pub to: String,
     pub value: U128,
@@ -319,9 +320,13 @@ impl Allowance {
     }
 
     /// The owner moves funds out without the agent's limits (any payee, any amount).
+    /// Needs 1 yoctoNEAR like every owner call. Until 2026-11-09 it checked only the caller, so a web wallet's sign-in
+    /// key for the owner (a function-call key, kept in the browser) could have had the whole wallet signed away; found
+    /// by our own audit with NEAR's near-contract-audit skill, never exploited.
     #[payable]
     pub fn owner_pay(&mut self, to: String, value: U128, valid_after: U64, valid_before: U64, nonce: String) {
-        require!(env::predecessor_account_id() == self.owner, "only the owner");
+        self.only_owner();
+        self.record("owner_paid", &hex20(&to).1, value.0, "");
         let digest = self.digest(&hex20(&to).0, value.0, valid_after.0, valid_before.0, &hex32(&nonce));
         self.request_signature(digest, 0)
     }
@@ -370,6 +375,7 @@ impl Allowance {
     #[payable]
     pub fn set_agent(&mut self, agent: AccountId) {
         self.only_owner();
+        self.record("agent_changed", "", 0, agent.as_str());
         self.agent = agent;
     }
     #[payable]
@@ -387,7 +393,7 @@ impl Allowance {
         let key = hex20(&payee).1;
         // Already payable stays payable: only someone new has to wait.
         if self.payees.insert(key.clone()) {
-            self.payee_ready.insert(key.clone(), now_s() + self.payee_delay_s);
+            self.payee_ready.insert(key.clone(), now_s().saturating_add(self.payee_delay_s));
             self.record("payee_added", &key, 0, "");
         }
     }
@@ -785,6 +791,37 @@ mod tests {
         c.approve(U64(1));
         c.on_held_signed(Err(PromiseError::Failed), U64(1));
         assert_eq!(c.get_held(U64(1)).unwrap().status, "waiting");
+    }
+
+    #[test]
+    #[should_panic(expected = "attach at least 1 yoctoNEAR")]
+    fn owner_pay_without_a_deposit_is_refused() {
+        // The owner's web sign-in key can't attach a deposit, so it can't move the wallet.
+        let mut c = contract();
+        testing_env!(VMContextBuilder::new()
+            .current_account_id("allowance.near".parse().unwrap())
+            .predecessor_account_id(accounts(0))
+            .block_timestamp(1_700_000_000 * 1_000_000_000)
+            .build());
+        c.owner_pay("0x2222222222222222222222222222222222222222".into(), U128(5_000_000), U64(1_699_999_940), U64(LATER), NONCE.into());
+    }
+
+    #[test]
+    fn owner_pay_and_a_new_agent_are_written_down() {
+        let mut c = contract();
+        ctx(accounts(0), 1_700_000_000);
+        c.owner_pay("0x2222222222222222222222222222222222222222".into(), U128(5_000_000), U64(1_699_999_940), U64(LATER), NONCE.into());
+        assert_eq!(last(&c).0, "owner_paid");
+        c.set_agent(accounts(2));
+        assert_eq!(last(&c).0, "agent_changed");
+    }
+
+    #[test]
+    #[should_panic(expected = "only the owner")]
+    fn the_agent_cannot_owner_pay() {
+        let mut c = contract();
+        ctx(accounts(1), 1_700_000_000);
+        c.owner_pay(GLIANA.into(), U128(1), U64(1_699_999_940), U64(LATER), NONCE.into());
     }
 
     #[test]

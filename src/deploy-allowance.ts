@@ -20,6 +20,7 @@ import { Account } from '@near-js/accounts';
 import { KeyPair } from '@near-js/crypto';
 import { JsonRpcProvider } from '@near-js/providers';
 import { KeyPairSigner } from '@near-js/signers';
+import { actionCreators } from '@near-js/transactions';
 import { deriveEvmAddress, rpcUrl, type NearNetwork } from './x402-payer.js';
 
 const NETWORK = (process.env.NEAR_NETWORK ?? 'testnet') as NearNetwork;
@@ -85,12 +86,14 @@ try {
   /* no contract, or not initialised */
 }
 if (!initialised) {
-  await contract.deployContract(readFileSync(WASM));
-  await contract.callFunction({
-    contractId: allowance.id,
-    methodName: 'new',
-    args: { owner: owner.account_id, agent: agent.id, signer: SIGNER, path: PATH, from, per_payment_max: PER_PAYMENT_MAX, daily_limit: DAILY_LIMIT, payees: PAYEES },
-    gas: 100_000_000_000_000n,
+  // Code and `new` in ONE transaction: `new` takes any caller on an uninitialised contract, so two transactions
+  // would leave a gap in which someone else could initialise it with themselves as owner (audit, 2026-11-09).
+  await contract.signAndSendTransaction({
+    receiverId: allowance.id,
+    actions: [
+      actionCreators.deployContract(readFileSync(WASM)),
+      actionCreators.functionCall('new', { owner: owner.account_id, agent: agent.id, signer: SIGNER, path: PATH, from, per_payment_max: PER_PAYMENT_MAX, daily_limit: DAILY_LIMIT, payees: PAYEES }, 100_000_000_000_000n, 0n),
+    ],
   });
   console.log(`deployed and initialised ${allowance.id}`);
 }

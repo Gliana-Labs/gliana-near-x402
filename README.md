@@ -167,9 +167,9 @@ Try it — do X, see Y:
    **Check it yourself:** every allowance the factory makes runs exactly
    `contract/factory/res/agent_allowance.wasm` and has no access key at all.
    ```bash
-   curl -s https://rpc.testnet.near.org -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_account","finality":"final","account_id":"proof.saku-factory.testnet"}}' | grep -o '"code_hash":"[^"]*"'
+   curl -s https://rpc.testnet.near.org -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_account","finality":"final","account_id":"verify.saku-factory.testnet"}}' | grep -o '"code_hash":"[^"]*"'
    ```
-   See: `"code_hash":"5EL7TxqGUUdAxUcUWj43YEnBWm1NXDhgSNMvTRS3Z9DC"`, which is base58(sha256) of that file
+   See: `"code_hash":"C2yxhUrBs6fQUu1pCysG6fP6cSRjRaN5iKGyRw1y27eQ"`, which is base58(sha256) of that file
    (`python3 -c "import hashlib;print(hashlib.sha256(open('contract/factory/res/agent_allowance.wasm','rb').read()).hexdigest())"`
    gives the same 32 bytes in hex). `view_access_key_list` on it returns `[]`.
 
@@ -335,12 +335,32 @@ demo/                    the recording script and the demo post.
   with `invalid signature: not for a valid curve point`, i.e. only the
   signature is wrong.
 - **The factory's allowances run the committed code and nothing else:** the
-  `code_hash` of `proof.saku-factory.testnet` equals sha256 of
+  `code_hash` of `verify.saku-factory.testnet` equals sha256 of
   `contract/factory/res/agent_allowance.wasm`, and the account has no access key
   (step 6 shows how to check). Its Base address is derived on-chain from the MPC's
   own answer, and matches the offline derivation.
 - **Measured: ~15 s per MPC signature.** Comfortable inside a 900 s x402
   window, not interactive. Said plainly because a demo that hides it is lying.
+
+## Security review (2026-11-09)
+
+We ran NEAR's own [`near-contract-audit`](https://skills.sh/near/agent-skills/near-contract-audit) skill and Trail of
+Bits' [`entry-point-analyzer`](https://skills.sh/trailofbits/skills/entry-point-analyzer) over `contract/` and
+`contract/factory/`, plus `cargo clippy` with the overflow lints. This is our own review, not an independent audit.
+
+| Severity | Finding | Fixed |
+| --- | --- | --- |
+| **High** | `owner_pay` checked the caller but not the 1 yoctoNEAR every other owner call needs. A web wallet's sign-in key for the owner (a function-call key kept in the browser) could have had the whole Base wallet signed away. | Now `only_owner` like the rest; test `owner_pay_without_a_deposit_is_refused`; refused live on testnet. Never exploited. |
+| Low | `owner_pay` and `set_agent` left nothing in the on-chain history. | Both recorded (`owner_paid`, `agent_changed`). |
+| Low | `add_payee` added the wait without overflow protection: a huge `payee_delay_s` set from a terminal would make it panic. | `saturating_add`. |
+| Low | The terminal setup deployed the code and ran `new` in two transactions; `new` takes any caller until it runs. | One transaction (`src/deploy-allowance.ts`). The factory always did it in one batch. |
+| Info | The factory account keeps a key, so the factory's code can still change. Allowances it already made can't: they have no key, and their code is checked by hash above. | Documented. |
+
+Every state-changing entry point and who may call it: `pay` (anyone; only the agent gets past the rules, others are
+refused without a trace); `approve`, `reject`, `revoke`, `owner_pay`, `set_*`, `add_payee`, `trust_payee`,
+`remove_payee` (owner and 1 yoctoNEAR); `on_signed`, `on_held_signed` (`#[private]`); `new` (once); `migrate`
+(`#[private]`). Factory: `create` (anyone, their own deposit, they become the owner), `claim_refund` (pays only the
+caller's own refund), `on_key`, `on_done` (`#[private]`), `new` (once).
 
 ## Honest limits
 
@@ -368,7 +388,8 @@ demo/                    the recording script and the demo post.
   2:37 video; setting up from the browser (`contract/factory`, `web/src/setup.ts`);
   a payment to a new seller held for the owner instead of refused; every owner call
   needing 1 yoctoNEAR; adding funds and changing rules from the owner page;
-  `trust_payee`; and the agent asking for its own budget (`saku_setup` in gliana-ai-mcp).
+  `trust_payee`; the agent asking for its own budget (`saku_setup` in gliana-ai-mcp); and the security review
+  above with its fixes.
 - **The seller, GlianaAI, is our existing product** (pay-per-call AI) and is
   not part of the submission; it was not changed for this. Only this client —
   paying with a NEAR account — is the entry.

@@ -155,7 +155,7 @@ async function sendTo(receiver: string, method: string, args: object, deposit: b
 
 const WORDS: Record<string, [string, string]> = {
   signed: ['Signed', 'ok'], held: ['Held', 'wait'], refused: ['Refused', 'bad'], approved: ['Approved', 'ok'], rejected: ['Rejected', 'bad'], sign_failed: ['Sign failed', 'bad'],
-  revoked: ['Revoked', 'bad'], payee_added: ['Seller added', 'note'], payee_trusted: ['Seller trusted', 'note'], payee_removed: ['Seller removed', 'note'], limits_changed: ['Limits changed', 'note'], paused: ['Paused', 'bad'], resumed: ['Resumed', 'ok'],
+  revoked: ['Revoked', 'bad'], payee_added: ['Seller added', 'note'], payee_trusted: ['Seller trusted', 'note'], owner_paid: ['Owner paid', 'note'], agent_changed: ['Agent changed', 'note'], payee_removed: ['Seller removed', 'note'], limits_changed: ['Limits changed', 'note'], paused: ['Paused', 'bad'], resumed: ['Resumed', 'ok'],
 };
 
 function header(owner?: string) {
