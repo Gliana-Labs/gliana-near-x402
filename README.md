@@ -1,11 +1,23 @@
 # Saku — give an AI agent a budget, not a key
 
-**Saku** is an allowance for AI agents, enforced on NEAR. A NEAR smart contract
-holds the agent's wallet on another chain through Chain Signatures, and signs
-only to the sellers, amounts and daily budget you set. The agent's own key can
-only ask, so a stolen key is worth one day's budget at most. It refuels itself
-with NEAR Intents and pays any x402 API. *Saku* is Indonesian for pocket, as in
-*uang saku*: an allowance. Built by [GlianaAI](https://ai.glianalabs.com).
+**Saku** is an allowance for AI agents, enforced on NEAR, and it already pays real APIs with real money. A NEAR
+contract owns the agent's wallet **on Base** through Chain Signatures: no Base private key exists anywhere, and the
+contract signs a USDC payment only to the sellers, amounts and budgets the owner set. The agent's own key can only
+ask, so a stolen agent key is worth one day's budget at most.
+
+**On NEAR mainnet, with receipts:**
+- paid **Exa**, a search API that changed nothing to accept it, $0.001 in USDC on Base
+  ([Basescan](https://basescan.org/tx/0x5f1bfc94c4d9206a44fcda36f8d2a2434189ddeeacec102e59b9634091464f81));
+- held a $0.018 payment over its limit until the owner approved it, then paid
+  ([Basescan](https://basescan.org/tx/0x694690c251c2fbd082f55764862bad70450bbf8281d79ca903e525ec288dd56f));
+- refused a prompt-injected $5 payment before anything was signed
+  ([NEAR](https://nearblocks.io/txns/G4wPa1TFUXJ5hBMrzfXwPyouQPmRMGkFfx4bCjGg2vdS));
+- refuelled itself through NEAR Intents: NEAR in, USDC out at the contract's own Base address
+  ([Basescan](https://basescan.org/tx/0xb383a32b84f02312f1a6f1382f1e047d39bda9788983b52b2f5fa48065943c76)).
+
+Any x402 seller works as it is, and any MCP agent can pay this way (`gliana-ai-mcp` on npm), or ask its user for a
+budget first. *Saku* is Indonesian for pocket, as in *uang saku*: an allowance. Built by
+[GlianaAI](https://ai.glianalabs.com).
 
 **See it live, nothing to install:** [saku.glianalabs.com](https://saku.glianalabs.com) reads the budget and history straight from the mainnet contract. It opens with the live contract refusing a $5 attack, and it publishes a real test agent's private key for you to steal with: each button sends a real testnet transaction from your browser. No wallet, no install.
 
