@@ -438,5 +438,7 @@ caller's own refund), `on_key`, `on_done` (`#[private]`), `new` (once).
   paying with a NEAR account — is the entry.
 - **Libraries:** `@near-js/*`, `@noble/curves`, `@noble/hashes`, `@scure/base`,
   `viem`. Written with AI assistance (Claude Code).
+- **Our other entry (rule Q-015):** [Pixel Wayfarers on NEAR](https://github.com/Gliana-Labs/pixel-wayfarers), NFTs
+  that are accounts and earn royalties (track `nfts`). The two projects are independent.
 
 MIT — see [LICENSE](LICENSE).
