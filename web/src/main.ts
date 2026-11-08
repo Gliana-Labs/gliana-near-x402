@@ -411,7 +411,7 @@ async function refresh(): Promise<boolean> {
             <h2>Sellers it may pay</h2>
             ${policy.payees.map((p) => {
               const wait = policy.waiting_payees?.find(([w]) => w === p);
-              return `<div class="line"><span>${baseLink(p)}</span><span class="line-end">${wait ? `<span class="soon" title="Payments to it wait for the owner until then">asks the owner, ${esc(until(wait[1]).replace('in ', 'for '))}</span>` : '<span class="ready">Payable</span>'}${owner && !revoked && wait ? `<button class="ghost tiny" type="button" data-trust="${esc(p)}" title="End the wait: its payments stop asking you">Trust now</button>` : ''}${owner && !revoked ? `<button class="ghost tiny" type="button" data-remove="${esc(p)}" aria-label="Remove ${esc(seller(p))}">Remove</button>` : ''}</span></div>`;
+              return `<div class="line"><span>${baseLink(p)}${wait ? `<small class="soon under" title="Payments to it wait for the owner until then">asks the owner, ${esc(until(wait[1]).replace('in ', 'for '))}</small>` : ''}</span><span class="line-end">${wait ? '' : '<span class="ready">Payable</span>'}${owner && !revoked && wait ? `<button class="ghost tiny" type="button" data-trust="${esc(p)}" title="End the wait: its payments stop asking you">Trust now</button>` : ''}${owner && !revoked ? `<button class="ghost tiny" type="button" data-remove="${esc(p)}" aria-label="Remove ${esc(seller(p))}">Remove</button>` : ''}</span></div>`;
             }).join('')}
             ${upgraded ? `<p class="faint" style="font-size:13px;margin-top:10px">For ${Math.round(Number(policy.payee_delay_s) / 3600)} hours after a seller is added, every payment to it waits for the owner’s OK, so nothing reaches a new seller unseen.</p>` : ''}
           </section>

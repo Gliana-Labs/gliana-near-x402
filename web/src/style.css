@@ -352,7 +352,8 @@ body, .gate, .today, .sheet, .dare, .top { transition: background-color 200ms ea
 /* The owner's tools: small, quiet, and only for the owner. */
 .fund .dare-key { margin: 10px 0; }
 .fund p b { font-weight: 600; }
-.line-end { display: inline-flex; align-items: center; gap: 10px; }
+.line-end { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.soon.under { display: block; font-size: 12px; margin-top: 2px; }
 button.tiny { min-height: 26px; padding: 0 8px; font-size: 12px; font-weight: 500; }
 .row-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 12px; margin-top: 14px; }
 .row-form .field { flex: 1 1 140px; }
