@@ -342,6 +342,27 @@ demo/                    the recording script and the demo post.
 - **Measured: ~15 s per MPC signature.** Comfortable inside a 900 s x402
   window, not interactive. Said plainly because a demo that hides it is lying.
 
+## Track fit: AI Security & Defense
+
+[The brief](https://github.com/nearai/near-hackathon-prompt-examples/blob/main/tracks/06-security.md) asks for spending
+limits and policy engines that give AI money without the keys. Point by point:
+
+- **allow / warn / block, and a human on warn.** The contract answers every payment with *sign*, *held* or *refused*
+  (`pay`, or the free `check` view first). Held payments wait for the owner's `approve`; the MCP client waits for that
+  answer and refuses to pay on a refusal. The rules are on chain, so a hijacked agent can't skip the check.
+- **A function-call key scoped to one contract, never full access.** Agents made by the factory, and the testnet demo
+  agent, hold one key: a function-call key whose receiver is their allowance and whose only method is `pay`.
+  **Its limits:** it can't transfer NEAR, add or delete keys, deploy code, or call any other method or contract; it
+  attaches no deposit, so the contract pays the MPC's 1 yoctoNEAR fee itself. Gas comes from the agent account's NEAR:
+  the factory gives the key an unlimited allowance, so it can't lock itself out by allowance, only by the account
+  running out of NEAR, which anyone can top up (the owner page shows the balance). The **mainnet demo agent** still
+  holds a full-access key because it refuels itself with NEAR Intents; see Honest limits.
+- **An attack demo with the log.** A prompt-injected agent sends $5 to an attacker and is refused before anything is
+  signed: [`demo/allowance4-session.log`](demo/allowance4-session.log) on mainnet, and live on
+  [saku.glianalabs.com](https://saku.glianalabs.com) with a real, published testnet key you can steal with.
+- **Counterparties.** Instead of scoring a receiver, Saku pays only sellers the owner listed; a newly listed seller's
+  payments wait for the owner until it's trusted.
+
 ## Security review (2026-11-09)
 
 We ran NEAR's own [`near-contract-audit`](https://skills.sh/near/agent-skills/near-contract-audit) skill and Trail of
