@@ -21,6 +21,12 @@ const YOCTO = 10n ** 24n;
 
 let agentKey: { pub: string; secret: string } | null = null;
 let savedFor = '';
+/**
+ * Started by the agent (gliana-ai-mcp's saku_setup): the link brings the agent's public key and the name it expects.
+ * The private half stays on the agent's machine, so there's nothing to download and the name can't change.
+ */
+const q = new URLSearchParams(location.search);
+const FROM_AGENT = /^ed25519:[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(q.get('agent_key') ?? '') ? { key: q.get('agent_key')!, name: q.get('name') ?? '' } : null;
 let factoryUp: boolean | null = null;
 
 function nearToYocto(n: string): bigint {
@@ -34,7 +40,8 @@ export async function drawSetup(d: SetupDeps) {
   const me = d.signedIn();
   if (factoryUp === null) factoryUp = await d.viewOf(d.factory, 'get_config').then(() => true, () => false);
   const intro = `<span class="eyebrow"><i></i>Set up · NEAR ${d.network}</span>
-    <h1>Your own allowance</h1>
+    <h1>${FROM_AGENT ? 'Your agent is asking for a budget' : 'Your own allowance'}</h1>
+    ${FROM_AGENT ? `<p class="pitch-say">Your AI agent made its own key and sent only the public half: <code title="${d.esc(FROM_AGENT.key)}">${d.esc(FROM_AGENT.key.slice(0, 18))}…</code>. Set what it may spend and with whom. It can never spend more, and you can cut it off in one transaction.</p>` : ''}
     <p class="pitch-say">One transaction from your wallet sets up the contract that holds your agent’s wallet on Base, and the agent’s own NEAR account. The contract is made with no key of its own, so nobody can change its code afterwards, us included.</p>`;
   const warn = d.network === 'mainnet'
     ? '<div class="note-bar fail"><span><b>Mainnet means real money.</b> The contract is experimental and hasn’t been audited. Fund it only with what you can afford to lose, or <a href="?new&network=testnet">try it on testnet</a> first.</span></div>'
@@ -47,7 +54,7 @@ export async function drawSetup(d: SetupDeps) {
   } else {
     body = `<form id="setup" class="sheet setup-form" autocomplete="off">
       <h2>Owner: ${d.esc(me)}</h2>
-      <label class="field"><span>Name</span><span class="with-suffix"><input name="name" required pattern="[a-z0-9]+(-[a-z0-9]+)*" minlength="2" maxlength="24" spellcheck="false" placeholder="my-agent"><em>.${d.esc(d.factory)}</em></span><small id="name-say" class="faint">a-z, 0-9 and dashes. The agent gets <code>agent-&lt;name&gt;.${d.esc(d.factory)}</code>.</small></label>
+      <label class="field"><span>Name</span><span class="with-suffix"><input name="name" required pattern="[a-z0-9]+(-[a-z0-9]+)*" minlength="2" maxlength="24" spellcheck="false" placeholder="my-agent" value="${d.esc(FROM_AGENT?.name ?? '')}" ${FROM_AGENT?.name ? 'readonly title="Your agent expects this name"' : ''}><em>.${d.esc(d.factory)}</em></span><small id="name-say" class="faint">a-z, 0-9 and dashes. The agent gets <code>agent-&lt;name&gt;.${d.esc(d.factory)}</code>.</small></label>
       <div class="two">
         <label class="field"><span>Most per payment ($)</span><input name="per" inputmode="decimal" value="0.01" required></label>
         <label class="field"><span>Most per day ($)</span><input name="day" inputmode="decimal" value="0.05" required></label>
@@ -59,10 +66,10 @@ export async function drawSetup(d: SetupDeps) {
       </div>
       <p class="total" id="total"></p>
       <div class="steps">
-        <button type="button" class="ghost" id="save-key">1. Download the agent’s key</button>
-        <button type="submit" class="go" id="make" disabled>2. Create</button>
+        ${FROM_AGENT ? '' : '<button type="button" class="ghost" id="save-key">1. Download the agent’s key</button>'}
+        <button type="submit" class="go" id="make" disabled>${FROM_AGENT ? 'Approve the budget' : '2. Create'}</button>
       </div>
-      <p class="faint small">The agent’s key is made in this browser. Only its public half goes on chain. Keep the file: it’s the only copy, and your agent signs its payment requests with it.</p>
+      <p class="faint small">${FROM_AGENT ? 'Afterwards, tell your agent it’s done: it checks the contract, and pays within these rules from then on. Each payment takes about 15 seconds.' : 'The agent’s key is made in this browser. Only its public half goes on chain. Keep the file: it’s the only copy, and your agent signs its payment requests with it.'}</p>
       <div id="setup-out" role="status"></div>
     </form>`;
   }
@@ -79,9 +86,14 @@ export async function drawSetup(d: SetupDeps) {
   const total = () => STORAGE_NEAR + Number(field('gas').value || 0);
   const ready = () => {
     document.getElementById('total')!.innerHTML = `You attach <b>${total().toFixed(2)} NEAR</b>: 2.50 locked as the contract’s storage, ${Number(field('gas').value || 0).toFixed(2)} to the agent.`;
+    if (FROM_AGENT && !FROM_AGENT.name) savedFor = name();
     make.disabled = !(savedFor && savedFor === name() && form.checkValidity());
   };
   let check = 0;
+  if (FROM_AGENT) {
+    agentKey = { pub: FROM_AGENT.key, secret: '' };
+    savedFor = FROM_AGENT.name;
+  }
   field('name').addEventListener('input', () => {
     ready();
     const n = name();
@@ -95,8 +107,9 @@ export async function drawSetup(d: SetupDeps) {
   });
   form.addEventListener('input', ready);
   ready();
+  if (FROM_AGENT?.name) field('name').dispatchEvent(new Event('input', { bubbles: true }));
 
-  document.getElementById('save-key')!.addEventListener('click', async () => {
+  document.getElementById('save-key')?.addEventListener('click', async () => {
     if (!field('name').checkValidity()) return void field('name').reportValidity();
     const { KeyPair } = await import('@near-js/crypto');
     if (!agentKey) {

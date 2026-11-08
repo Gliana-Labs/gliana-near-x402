@@ -263,6 +263,14 @@ move the agent's NEAR into the address its owner controls. A quote above
 
 ## Use it from any AI agent (MCP)
 
+**The agent asks, you approve (opt-in).** With [`gliana-ai-mcp`](https://www.npmjs.com/package/gliana-ai-mcp) 0.11+, ask
+your agent to *"set up a Saku budget"*. Its `saku_setup` tool makes the agent's NEAR key on its own machine and gives you a
+link (`saku.glianalabs.com/?new&agent_key=ed25519:…&name=…`) carrying only the public half. You open it, set the limits
+and sellers, and confirm one transaction; the agent checks the contract and pays within your rules from then on. No key
+is pasted anywhere and no file changes hands. Verified end to end on testnet 2026-11-09 through the real MCP server
+(`mcp-6sosv.saku-factory.testnet`). Each payment takes ~15-20 s, so it's the choice for safety, not speed: the MCP's
+other payment options (a prepaid key, a wallet key) stay as they are.
+
 The same payer ships in [`gliana-ai-mcp`](https://www.npmjs.com/package/gliana-ai-mcp)
 (0.10+), the MCP server for Claude, Cursor and any MCP client — so an agent pays
 for 100+ AI models and 60+ tools with a NEAR account and no code:
@@ -359,7 +367,8 @@ demo/                    the recording script and the demo post.
   run 4 on mainnet (Exa, a held payment approved, the attack refused) and the
   2:37 video; setting up from the browser (`contract/factory`, `web/src/setup.ts`);
   a payment to a new seller held for the owner instead of refused; every owner call
-  needing 1 yoctoNEAR; adding funds and changing rules from the owner page.
+  needing 1 yoctoNEAR; adding funds and changing rules from the owner page;
+  `trust_payee`; and the agent asking for its own budget (`saku_setup` in gliana-ai-mcp).
 - **The seller, GlianaAI, is our existing product** (pay-per-call AI) and is
   not part of the submission; it was not changed for this. Only this client —
   paying with a NEAR account — is the entry.
