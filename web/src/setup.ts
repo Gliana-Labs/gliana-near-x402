@@ -52,9 +52,9 @@ export async function drawSetup(d: SetupDeps) {
         <label class="field"><span>Most per payment ($)</span><input name="per" inputmode="decimal" value="0.01" required></label>
         <label class="field"><span>Most per day ($)</span><input name="day" inputmode="decimal" value="0.05" required></label>
       </div>
-      <label class="field"><span>Sellers it may pay (one Base address per line)</span><textarea name="sellers" rows="3" spellcheck="false">${DEFAULT_SELLERS.join('\n')}</textarea><small class="faint">Filled in: GlianaAI and Exa. Anyone else is refused, and a seller added later waits before it can be paid.</small></label>
+      <label class="field"><span>Sellers it may pay (one Base address per line)</span><textarea name="sellers" rows="3" spellcheck="false">${DEFAULT_SELLERS.join('\n')}</textarea><small class="faint">Filled in: GlianaAI and Exa. Anyone else is refused. Payments to a seller you add later wait for your OK at first.</small></label>
       <div class="two">
-        <label class="field"><span>A new seller waits (hours)</span><input name="wait" inputmode="numeric" value="24" required></label>
+        <label class="field"><span>New sellers need your OK for (hours)</span><input name="wait" inputmode="numeric" value="24" required></label>
         <label class="field"><span>NEAR for the agent’s gas</span><input name="gas" inputmode="decimal" value="0.5" required></label>
       </div>
       <p class="total" id="total"></p>
@@ -122,7 +122,7 @@ export async function drawSetup(d: SetupDeps) {
     const problem = !sellers.length ? 'List at least one seller.'
       : sellers.find((s) => !/^0x[0-9a-f]{40}$/.test(s)) ? `“${sellers.find((s) => !/^0x[0-9a-f]{40}$/.test(s))}” isn’t a Base address (0x and 40 hex digits).`
       : !(per > 0) || !(day >= per) ? 'The most per payment must be above $0 and no more than the most per day.'
-      : !(wait >= 0 && wait <= 30 * 86400) ? 'A new seller’s wait is 0 to 720 hours.'
+      : !(wait >= 0 && wait <= 30 * 86400) ? 'New sellers need your OK for 0 to 720 hours.'
       : !(Number(field('gas').value) >= 0.5) ? 'Give the agent at least 0.5 NEAR for gas.' : '';
     if (problem) return say(`<p class="bad-text">${d.esc(problem)}</p>`);
     const child = `${name()}.${d.factory}`;

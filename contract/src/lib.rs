@@ -25,9 +25,10 @@
 //!     cap or the day's budget, up to `approval_max`) isn't refused, it waits. Nothing
 //!     is signed until the owner calls `approve`. The agent reads the signature back
 //!     from `get_held`.
-//!   - A newly added payee can't be paid for `payee_delay_s`, fixed when the rules were
-//!     set. A leaked owner key can't instantly add an attacker and drain the wallet
-//!     through the agent, and the owner has that long to notice.
+//!   - A payment to a payee added less than `payee_delay_s` ago waits for the owner too,
+//!     however small. A seller added by mistake (or at a hijacked agent's request) gets
+//!     nothing the owner didn't see. Until 2026-11-09 these were refused outright for a
+//!     day; holding them lets the owner say yes at once instead of waiting it out.
 //!   - `revoke` cuts the agent off in one call and refuses everything waiting.
 //!
 //! Every decision goes in a short on-chain history (`get_history`), so what the agent
@@ -476,8 +477,6 @@ impl Allowance {
             Verdict::Refuse("only the agent account may pay")
         } else if !self.payees.contains(&key) {
             Verdict::Refuse("payee is not on the owner's list")
-        } else if self.payee_ready.get(&key).is_some_and(|at| *at > now) {
-            Verdict::Refuse("this payee was added recently and can't be paid yet")
         } else if value == 0 {
             Verdict::Refuse("amount must be more than zero")
         } else if value > self.approval_max {
@@ -486,6 +485,8 @@ impl Allowance {
             Verdict::Refuse("valid_before must be within the next hour")
         } else if valid_after >= valid_before {
             Verdict::Refuse("valid_after must be before valid_before")
+        } else if self.payee_ready.get(&key).is_some_and(|at| *at > now) {
+            Verdict::Hold("a new seller, still in its wait")
         } else if value > self.per_payment_max {
             Verdict::Hold("over the per-payment limit")
         } else if spent + value > self.daily_limit {
@@ -775,6 +776,19 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "attach at least 1 yoctoNEAR")]
+    fn a_rule_change_without_a_deposit_is_refused_even_from_the_owner() {
+        // A web wallet's sign-in key can't attach a deposit: this is what stops a stolen browser session.
+        let mut c = contract();
+        testing_env!(VMContextBuilder::new()
+            .current_account_id("allowance.near".parse().unwrap())
+            .predecessor_account_id(accounts(0))
+            .block_timestamp(1_700_000_000 * 1_000_000_000)
+            .build());
+        c.add_payee("0x2222222222222222222222222222222222222222".into());
+    }
+
+    #[test]
     #[should_panic(expected = "only the owner")]
     fn the_agent_cannot_approve_its_own_payment() {
         let mut c = contract();
@@ -817,7 +831,7 @@ mod tests {
     }
 
     #[test]
-    fn a_new_payee_waits_a_day_and_an_old_one_doesnt() {
+    fn a_new_payee_needs_the_owner_for_a_day_and_an_old_one_doesnt() {
         const NEW: &str = "0x1111111111111111111111111111111111111111";
         let mut c = contract();
         ctx(accounts(0), 1_700_000_000);
@@ -826,7 +840,8 @@ mod tests {
         assert_eq!(c.get_policy().waiting_payees.len(), 1);
         ctx(accounts(1), 1_700_000_000);
         ask(&mut c, NEW, 2000);
-        assert_eq!(last(&c).1, "this payee was added recently and can't be paid yet");
+        assert_eq!(last(&c), ("held".to_string(), "a new seller, still in its wait".to_string()));
+        assert_eq!(c.list_held()[0].status, "waiting");
         ask(&mut c, GLIANA, 2000);
         assert_eq!(last(&c).0, "signed");
         ctx(accounts(1), 1_700_000_000 + 86_401);

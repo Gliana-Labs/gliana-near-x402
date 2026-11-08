@@ -411,9 +411,9 @@ async function refresh(): Promise<boolean> {
             <h2>Sellers it may pay</h2>
             ${policy.payees.map((p) => {
               const wait = policy.waiting_payees?.find(([w]) => w === p);
-              return `<div class="line"><span>${baseLink(p)}</span><span class="line-end">${wait ? `<span class="soon">payable ${esc(until(wait[1]))}</span>` : '<span class="ready">Payable</span>'}${owner && !revoked ? `<button class="ghost tiny" type="button" data-remove="${esc(p)}" aria-label="Remove ${esc(seller(p))}">Remove</button>` : ''}</span></div>`;
+              return `<div class="line"><span>${baseLink(p)}</span><span class="line-end">${wait ? `<span class="soon" title="Payments to it wait for the owner until then">asks the owner, ${esc(until(wait[1]).replace('in ', 'for '))}</span>` : '<span class="ready">Payable</span>'}${owner && !revoked ? `<button class="ghost tiny" type="button" data-remove="${esc(p)}" aria-label="Remove ${esc(seller(p))}">Remove</button>` : ''}</span></div>`;
             }).join('')}
-            ${upgraded ? `<p class="faint" style="font-size:13px;margin-top:10px">A new seller waits ${Math.round(Number(policy.payee_delay_s) / 3600)} hours, so a seller you didn’t add can’t be paid before you have time to notice.</p>` : ''}
+            ${upgraded ? `<p class="faint" style="font-size:13px;margin-top:10px">For ${Math.round(Number(policy.payee_delay_s) / 3600)} hours after a seller is added, every payment to it waits for the owner’s OK, so nothing reaches a new seller unseen.</p>` : ''}
           </section>
           ${upgraded ? `<section class="sheet">
             <h2>If something is wrong</h2>
@@ -462,7 +462,7 @@ async function refresh(): Promise<boolean> {
         <h2>Change the rules</h2>
         <form id="limits" class="row-form"><label class="field"><span>Most per payment ($)</span><input name="per" inputmode="decimal" value="${cap / 1e6}"></label><label class="field"><span>Most per day ($)</span><input name="day" inputmode="decimal" value="${daily / 1e6}"></label><button class="ghost">Save limits</button></form>
         <form id="add-seller" class="row-form"><label class="field grow"><span>Add a seller (Base address)</span><input name="payee" placeholder="0x…" spellcheck="false" autocomplete="off"></label><button class="ghost">Add</button></form>
-        <div class="row-form"><p class="faint small grow">A new seller can be paid after ${Math.round(Number(policy.payee_delay_s) / 3600)} h. Each change opens your wallet to confirm.</p><button class="ghost" type="button" id="pause">${policy.paused ? 'Resume the agent' : 'Pause the agent'}</button></div>
+        <div class="row-form"><p class="faint small grow">Payments to a new seller wait for your OK for ${Math.round(Number(policy.payee_delay_s) / 3600)} h. Each change opens your wallet to confirm.</p><button class="ghost" type="button" id="pause">${policy.paused ? 'Resume the agent' : 'Pause the agent'}</button></div>
         <p id="tools-say" class="small" role="status"></p>
       </section>` : '';
     if (toolsHtml !== lastTools) {

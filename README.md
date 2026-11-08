@@ -190,12 +190,12 @@ Three rules for the cases a budget alone doesn't cover, in `contract/`:
 | Rule | What happens |
 | --- | --- |
 | **The owner approves what's unusual** | A payment to a listed seller over the per-payment cap or the day's budget, up to `approval_max`, isn't refused and isn't signed. It waits. The owner calls `approve`, the MPC signs, and the agent reads the signature back from `get_held`. Approving needs a full-access key, so a limited key can't do it |
-| **New sellers wait a day** | A seller added with `add_payee` can't be paid for `payee_delay_s`, which is fixed when the rules are set. A leaked owner key can't instantly add an attacker and drain the wallet through the agent |
+| **A new seller needs the owner's OK at first** | For `payee_delay_s` after `add_payee` (fixed when the rules are set, a day by default), every payment to that seller is held for the owner, however small. A seller added by mistake, or at a hijacked agent's request, gets nothing the owner didn't see. (Until 2026-11-09 these were refused outright for the day; holding them lets the owner say yes at once.) Every owner call needs 1 yoctoNEAR, so a web wallet's sign-in key alone can't add a seller or change a limit |
 | **`revoke` in one call** | The agent is cut off, everything waiting is refused, and the money stays put. Coming back takes a new agent account as well as unpausing, so the leaked key stays useless |
 
 A stolen agent key can fill the waiting list (10 at most) and nothing more. Every decision goes in a short history on the contract (`get_history`), refusals included, so the [owner page](https://gliana-labs.github.io/gliana-near-x402/) needs no indexer and no server of ours.
 
-**Verified on live testnet with the real MPC, 2026-11-07** (`allowance.gliana-x402.testnet`, upgraded in place, so the same Base address): an ordinary payment signed; one over the cap held, approved, and its signature recovered to the contract's address; another held and rejected; a new seller refused until its wait ends; revoke, then coming back with a chosen agent. Run it yourself, free, against your own testnet allowance:
+**Verified on live testnet with the real MPC, 2026-11-07** (`allowance.gliana-x402.testnet`, upgraded in place, so the same Base address): an ordinary payment signed; one over the cap held, approved, and its signature recovered to the contract's address; another held and rejected; a new seller refused until its wait ends (held for the owner since 2026-11-09, checked on the same contract); revoke, then coming back with a chosen agent. Run it yourself, free, against your own testnet allowance:
 
 ```bash
 NEAR_NETWORK=testnet ALLOWANCE=allowance.<you> AGENT_KEY_FILE=~/.near-gliana/agent.<you>.json OWNER_KEY_FILE=~/.near-gliana/you.testnet.json npx tsx src/rehearse.ts
