@@ -10,6 +10,8 @@ import { loader } from './logo';
 import { Buffer } from 'buffer';
 import { DARE } from './dare-key';
 import type { WalletSelector } from '@near-wallet-selector/core';
+import { setupTheme } from './theme';
+setupTheme();
 
 // The wallet libraries expect Node's Buffer as they load, so it's in place before they're imported, further down.
 (globalThis as unknown as { Buffer: typeof Buffer }).Buffer = Buffer;
@@ -123,6 +125,7 @@ const TERMS = Object.entries(TERM_TEXT).map(([id, [name, text]]) => `<div id="t-
 const PITCH = `<section class="pitch"><h1>Give an AI agent a budget, <em>not a key.</em></h1><p class="pitch-say">The agent holds no key that can move money. A NEAR contract owns its wallet on Base through ${term('chainsig', 'Chain Signatures')}, and signs only within the owner’s rules. A stolen agent key is worth one day’s budget.</p></section>`;
 const QUESTIONS = `<section class="questions" aria-label="Questions">
   <details><summary>What if the agent’s key is stolen?</summary><p>The thief can only do what the agent can: ask. At most that’s one day’s budget, paid only to sellers the owner chose. Anything else is refused or waits for the owner.</p></details>
+  <details><summary>And if the owner’s key is stolen?</summary><p>Then it isn’t safe: the owner can change the rules and pay anyone directly. Keep the owner key in a hardware wallet, never on the machine the agent runs on.</p></details>
   <details><summary>Can GlianaAI take the money?</summary><p>No. The money is in a wallet only this contract can sign for, and only its owner can change the rules. Whoever holds the contract account’s own key could replace its code, so in real use that key should be deleted. On this demo it’s still there, so we can improve it.</p></details>
   <details><summary>Is any of this real?</summary><p>Yes. The budget and history above come from a live mainnet contract, and the receipts are real payments. “Steal with it” runs on testnet, so nobody’s money is at stake.</p></details>
   <details><summary>What can’t it do yet?</summary><p>It pays on Base only, with more chains to come. The contract is experimental and hasn’t been audited, so don’t trust it with money you can’t lose.</p></details>
@@ -272,7 +275,7 @@ async function refresh() {
               const wait = policy.waiting_payees?.find(([w]) => w === p);
               return `<div class="line"><span>${baseLink(p)}</span>${wait ? `<span class="soon">payable ${esc(until(wait[1]))}</span>` : '<span class="ready">Payable</span>'}</div>`;
             }).join('')}
-            ${upgraded ? `<p class="faint" style="font-size:13px;margin-top:10px">A new seller waits ${Math.round(Number(policy.payee_delay_s) / 3600)} hours, so a stolen owner key can’t add an attacker and spend at once.</p>` : ''}
+            ${upgraded ? `<p class="faint" style="font-size:13px;margin-top:10px">A new seller waits ${Math.round(Number(policy.payee_delay_s) / 3600)} hours, so a seller you didn’t add can’t be paid before you have time to notice.</p>` : ''}
           </section>
           ${upgraded ? `<section class="sheet">
             <h2>If something is wrong</h2>

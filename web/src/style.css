@@ -20,6 +20,46 @@
   --r-s: 6px;
   --r-m: 10px;
   --r-l: 16px;
+  --hover: rgba(255, 255, 255, 0.05);
+  --press: rgba(255, 255, 255, 0.08);
+  --held-line: rgba(245, 165, 36, 0.45);
+  --held-soft-line: rgba(245, 165, 36, 0.3);
+  --refused-line: rgba(255, 107, 94, 0.5);
+  --refused-soft-line: rgba(255, 107, 94, 0.35);
+  --on-signed: #04130d;
+  --signed-hover: #3ff5b2;
+  --pop-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  --top-bg: rgba(10, 12, 15, 0.82);
+  color-scheme: dark;
+}
+/* Light: the same ledger on paper. Colours darken so they still read on white (green, amber and red all pass 4.5:1). */
+:root[data-theme='light'] {
+  --night: #f5f6f8;
+  --pocket: #ffffff;
+  --pocket-raised: #ffffff;
+  --well: #eef0f3;
+  --seam: rgba(15, 20, 30, 0.1);
+  --seam-strong: rgba(15, 20, 30, 0.18);
+  --ink: #0d1117;
+  --thread: #4a5260;
+  --faint: #66707e;
+  --signed: #00855a;
+  --signed-dim: rgba(0, 133, 90, 0.08);
+  --held: #a5620a;
+  --held-dim: rgba(165, 98, 10, 0.08);
+  --refused: #c8372b;
+  --refused-dim: rgba(200, 55, 43, 0.07);
+  --hover: rgba(15, 20, 30, 0.04);
+  --press: rgba(15, 20, 30, 0.07);
+  --held-line: rgba(165, 98, 10, 0.45);
+  --held-soft-line: rgba(165, 98, 10, 0.3);
+  --refused-line: rgba(200, 55, 43, 0.45);
+  --refused-soft-line: rgba(200, 55, 43, 0.3);
+  --on-signed: #ffffff;
+  --signed-hover: #006c49;
+  --pop-shadow: 0 12px 40px rgba(15, 20, 30, 0.15);
+  --top-bg: rgba(245, 246, 248, 0.85);
+  color-scheme: light;
 }
 * { box-sizing: border-box; }
 html { -webkit-font-smoothing: antialiased; }
@@ -31,9 +71,12 @@ h1, h2, p { margin: 0; }
 .quiet { color: var(--thread); }
 .faint { color: var(--faint); }
 .money { font-family: var(--money); font-variant-numeric: tabular-nums; font-feature-settings: 'zero' 0; }
-.loading { padding: 80px 0; text-align: center; }
+/* While the contract is read, the wait fills the screen, so the footer doesn't show up first on its own. */
+.loading { min-height: calc(100svh - 64px); display: grid; place-items: center; padding: 40px 0; text-align: center; }
+body:has(#app > .loading) .foot { display: none; }
 
-.top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 16px 32px; border-bottom: 1px solid var(--seam); }
+/* The bar stays while the ledger scrolls: who you're looking at, and the way to act on it, never leave the screen. */
+.top { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 14px 32px; border-bottom: 1px solid var(--seam); background: var(--top-bg); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
 .mark { display: inline-flex; align-items: center; gap: 9px; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; text-decoration: none; }
 .mark-logo { display: inline-flex; width: 26px; height: 26px; color: var(--signed); }
 .mark-logo svg { display: block; width: 100%; height: 100%; }
@@ -47,7 +90,7 @@ main { padding: 0 32px 24px; }
 .layout { display: grid; grid-template-columns: minmax(340px, 440px) minmax(0, 1fr); gap: 40px; align-items: start; }
 .side { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding-top: 24px; min-width: 0; }
 .flow { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding-top: 24px; min-width: 0; }
-@media (min-height: 860px) and (min-width: 1101px) { .side { position: sticky; top: 0; } }
+@media (min-height: 860px) and (min-width: 1101px) { .side { position: sticky; top: 64px; } }
 
 /* The page says one thing, then proves it live. */
 .stack-gate, .stack-rest { display: grid; gap: 16px; }
@@ -62,7 +105,7 @@ h1 em { font-style: normal; color: var(--signed); }
 .gate-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; padding: 18px 22px; }
 .gate-head h2 { font-size: 16px; font-weight: 600; }
 .try-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
-button.pressed { background: rgba(255, 255, 255, 0.08); }
+button.pressed { background: var(--press); }
 button.stop.pressed { background: var(--refused-dim); }
 .path { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--seam); }
 .path li { padding: 18px 22px; position: relative; min-width: 0; }
@@ -121,7 +164,7 @@ dl { margin: 0; }
 .sheet > .quiet { font-size: 14px; text-wrap: pretty; }
 
 /* A held payment is the only thing on the page that asks for something, so it's the only thing that glows. */
-.ask { background: var(--held-dim); box-shadow: 0 0 0 1px rgba(245, 165, 36, 0.45); border-radius: var(--r-l); padding: 20px 22px; }
+.ask { background: var(--held-dim); box-shadow: 0 0 0 1px var(--held-line); border-radius: var(--r-l); padding: 20px 22px; }
 .ask h2 { color: var(--held); font-size: 14px; font-weight: 600; margin-bottom: 6px; }
 .ask-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; padding: 12px 0 0; }
 .ask-row + .ask-row { margin-top: 12px; border-top: 1px solid var(--seam); }
@@ -131,11 +174,11 @@ dl { margin: 0; }
 button { font: 600 14px var(--sans); min-height: 40px; padding: 0 16px; border: 0; border-radius: var(--r-s); cursor: pointer; transition: transform 120ms cubic-bezier(0.23, 1, 0.32, 1), background-color 120ms, color 120ms; }
 button:active:not(:disabled) { transform: scale(0.97); }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
-.go { background: var(--signed); color: #04130d; }
-.go:hover:not(:disabled) { background: #3ff5b2; }
+.go { background: var(--signed); color: var(--on-signed); }
+.go:hover:not(:disabled) { background: var(--signed-hover); }
 .ghost { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px var(--seam-strong); }
-.ghost:hover:not(:disabled) { background: rgba(255, 255, 255, 0.05); }
-.stop { background: transparent; color: var(--refused); box-shadow: inset 0 0 0 1px rgba(255, 107, 94, 0.5); }
+.ghost:hover:not(:disabled) { background: var(--hover); }
+.stop { background: transparent; color: var(--refused); box-shadow: inset 0 0 0 1px var(--refused-line); }
 .stop:hover:not(:disabled) { background: var(--refused-dim); }
 .who button { min-height: 32px; padding: 0 10px; font-size: 13px; }
 
@@ -172,10 +215,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .term { all: unset; cursor: help; border-bottom: 1px dotted var(--faint); }
 .term:hover { color: var(--ink); border-bottom-color: var(--ink); }
 .term:focus-visible { outline: 2px solid var(--signed); outline-offset: 2px; }
-.term-pop { max-width: 340px; padding: 14px 16px; border: 0; border-radius: var(--r-m); background: var(--pocket-raised); color: var(--ink); box-shadow: 0 0 0 1px var(--seam-strong), 0 12px 40px rgba(0, 0, 0, 0.5); font-size: 14px; }
+.term-pop { max-width: 340px; padding: 14px 16px; border: 0; border-radius: var(--r-m); background: var(--pocket-raised); color: var(--ink); box-shadow: 0 0 0 1px var(--seam-strong), var(--pop-shadow); font-size: 14px; }
 .term-pop p { margin-top: 4px; color: var(--thread); }
 .term-pop::backdrop { background: rgba(0, 0, 0, 0.35); }
-.dare { background: var(--pocket); border-radius: var(--r-l); box-shadow: 0 0 0 1px rgba(255, 107, 94, 0.35); padding: 20px 22px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.dare { background: var(--pocket); border-radius: var(--r-l); box-shadow: 0 0 0 1px var(--refused-soft-line); padding: 20px 22px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .dare h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
 .dare-head p { font-size: 14px; margin-top: 4px; }
 .dare-key { display: flex; align-items: center; gap: 10px; background: var(--well); box-shadow: inset 0 0 0 1px var(--seam); border-radius: var(--r-s); padding: 6px 6px 6px 12px; }
@@ -188,7 +231,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .pick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .pick input, .pick select { font: 400 14px var(--money); color: var(--ink); background: var(--well); border: 0; box-shadow: inset 0 0 0 1px var(--seam); border-radius: var(--r-s); padding: 0 10px; min-height: 40px; min-width: 0; }
 .pick input { flex: 1 1 260px; }
-.note-bar { padding: 14px 18px; border-radius: var(--r-m); background: var(--held-dim); box-shadow: 0 0 0 1px rgba(245, 165, 36, 0.3); font-size: 14px; }
+.note-bar { padding: 14px 18px; border-radius: var(--r-m); background: var(--held-dim); box-shadow: 0 0 0 1px var(--held-soft-line); font-size: 14px; }
 
 @media (max-width: 1100px) {
   .layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
@@ -225,3 +268,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   .saku-ring, .saku-pouch { animation: none; }
   .saku-loader { animation: saku-breathe 1.6s ease-in-out infinite; }
 }
+
+/* Theme switch: system, light or dark. A small square in the bar, the same size as its neighbours. */
+.theme { display: inline-grid; place-items: center; width: 32px; min-height: 32px; padding: 0; border-radius: var(--r-s); background: transparent; color: var(--thread); box-shadow: inset 0 0 0 1px var(--seam-strong); }
+.theme:hover { color: var(--ink); background: var(--hover); }
+.theme svg { width: 16px; height: 16px; }
+body, .gate, .today, .sheet, .dare, .top { transition: background-color 200ms ease, color 200ms ease; }
+@media (prefers-reduced-motion: reduce) { body, .gate, .today, .sheet, .dare, .top { transition: none; } }
