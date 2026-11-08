@@ -152,7 +152,17 @@ Try it — do X, see Y:
    view answering exactly like `pay`, payments that wait for the owner, the wait on
    new sellers, and revoking.
 
-6. **Deploy your own allowance on testnet** (free; needs a testnet account key file).
+6. **Set one up from the browser** (no terminal): open
+   [saku.glianalabs.com/?new&network=testnet](https://saku.glianalabs.com/?new&network=testnet), connect a testnet
+   wallet, pick a name and the rules, download the agent's key, and confirm one transaction (3 NEAR: 2.5 is the
+   contract's storage, the rest the agent's gas). The factory (`contract/factory`, live at `saku-factory.testnet`)
+   asks the MPC for the new contract's key and works out its Base address on-chain, creates `<name>.saku-factory.testnet`
+   with the allowance contract and **no key of its own** (so nobody can ever replace its code), and
+   `agent-<name>.saku-factory.testnet`, whose only key may call `pay` on that allowance. The agent's private key is
+   made in your browser and never leaves it. Verified on testnet 2026-11-08: address matches the off-chain
+   derivation, a `pay` from the new agent got its MPC signature in 17 s, an owner call without 1 yoctoNEAR refused.
+
+   Or **from a terminal** (needs a testnet account key file):
    ```bash
    npm run contract:build
    NEAR_KEY_FILE=~/.near-gliana/you.testnet.json NEAR_NETWORK=testnet npm run allowance:deploy
@@ -275,9 +285,12 @@ src/demo.ts              the five steps, end to end.
 src/address.ts           print the Base address a NEAR account controls.
 src/policy.ts            pay through the allowance contract (checks its digest matches first).
 src/deploy-allowance.ts  create allowance.<you> + agent.<you>, deploy, set the policy.
+src/deploy-factory.ts    deploy the factory that sets allowances up from one wallet call.
+src/upgrade-allowance.ts new code over an allowance whose own key you hold, state kept.
 src/policy-demo.ts       the agent pays through the allowance.
 src/refuel.ts            NEAR -> USDC on Base at the payer's own address, via NEAR Intents (1Click).
 contract/                agent-allowance: the NEAR contract (Rust, near-sdk), with its tests.
+contract/factory/        saku-factory: one wallet call -> allowance + agent; Base address from the MPC on-chain.
 src/x402-payer.test.ts   derivation vectors, the real MPC fixture, payment construction.
 skills/pay-with-near/    an agent skill in the near/agent-skills format.
 demo/                    the recording script and the demo post.

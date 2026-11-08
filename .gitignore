@@ -19,3 +19,7 @@ key.json
 
 # Rust build output
 contract/target/
+
+# Rust build output
+contract/target/
+contract/factory/target/

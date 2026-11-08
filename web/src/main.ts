@@ -11,6 +11,7 @@ import { Buffer } from 'buffer';
 import { DARE } from './dare-key';
 import type { WalletSelector } from '@near-wallet-selector/core';
 import { setupTheme } from './theme';
+import { drawSetup } from './setup';
 setupTheme();
 
 // The wallet libraries expect Node's Buffer and `global` as they load, so both are in place before they're imported,
@@ -33,10 +34,14 @@ const network: Network = q.get('network') === 'testnet' ? 'testnet' : 'mainnet';
 const contract = q.get('contract') ?? (network === 'testnet' ? 'allowance.gliana-x402.testnet' : 'allowance.cocoanutx.near');
 /**
  * Public NEAR RPCs, tried in turn, starting with whichever answered last. FastNEAR's free endpoints answered 429 to
- * most reads on 2026-11-08 and the page showed "Couldn't read …: undefined", so they come last. All four allow CORS.
+ * most reads on 2026-11-08 and the page showed "Couldn't read …: undefined", so they come last. On testnet FastNEAR
+ * answered and rpc.testnet.near.org took ~3 s a call, so there it's the other way round. All of them allow CORS.
  */
-const RPCS = network === 'testnet' ? ['https://rpc.testnet.near.org', 'https://test.rpc.fastnear.com', 'https://near-testnet.drpc.org'] : ['https://near.drpc.org', 'https://rpc.mainnet.near.org', 'https://free.rpc.fastnear.com', 'https://rpc.mainnet.fastnear.com'];
+const RPCS = network === 'testnet' ? ['https://test.rpc.fastnear.com', 'https://near-testnet.drpc.org', 'https://rpc.testnet.near.org'] : ['https://near.drpc.org', 'https://rpc.mainnet.near.org', 'https://free.rpc.fastnear.com', 'https://rpc.mainnet.fastnear.com'];
 const host = (u: string) => new URL(u).hostname.replace(/^(rpc|free\.rpc|rpc\.mainnet)\./, '');
+/** The factory that sets up an allowance from one wallet call (contract/factory). Mainnet's is live once deployed. */
+const FACTORY = network === 'testnet' ? 'saku-factory.testnet' : 'saku.cocoanutx.near';
+const setupMode = q.has('new');
 const EXPLORER = network === 'testnet' ? 'https://testnet.nearblocks.io' : 'https://nearblocks.io';
 const GAS = '300000000000000';
 
@@ -70,8 +75,23 @@ let rpcAt = 0;
 /** The contract itself answered with an error (wrong account, no such method): another RPC would say the same. */
 class ContractError extends Error {}
 
-async function view<T>(method: string, args: object = {}): Promise<T> {
-  const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'query', params: { request_type: 'call_function', finality: 'final', account_id: contract, method_name: method, args_base64: btoa(JSON.stringify(args)) } });
+const view = <T>(method: string, args: object = {}) => viewOf<T>(contract, method, args);
+async function viewOf<T>(account: string, method: string, args: object = {}): Promise<T> {
+  const r = await query<{ result: number[] }>({ request_type: 'call_function', finality: 'final', account_id: account, method_name: method, args_base64: btoa(JSON.stringify(args)) });
+  return JSON.parse(new TextDecoder().decode(new Uint8Array(r.result))) as T;
+}
+/** A NEAR account's balance in NEAR, or null if it doesn't exist. */
+async function nearBalance(account: string): Promise<number | null> {
+  try {
+    const r = await query<{ amount: string }>({ request_type: 'view_account', finality: 'final', account_id: account });
+    return Number(BigInt(r.amount) / 10n ** 18n) / 1e6;
+  } catch (e) {
+    if (e instanceof ContractError) return null;
+    throw e;
+  }
+}
+async function query<T>(params: object): Promise<T> {
+  const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'query', params });
   const tried: string[] = [];
   for (let n = 0; n < RPCS.length; n++) {
     const i = (rpcAt + n) % RPCS.length;
@@ -91,13 +111,13 @@ async function view<T>(method: string, args: object = {}): Promise<T> {
         tried.push(`${name} ${why.slice(0, 40)}`);
         continue;
       }
-      if (!j.result?.result) {
+      if (!j.result) {
         tried.push(`${name} gave no answer`);
         continue;
       }
       rpcAt = i;
       Object.assign(link, { ok: true, via: name, at: Date.now(), why: '' });
-      return JSON.parse(new TextDecoder().decode(new Uint8Array(j.result.result))) as T;
+      return j.result as T;
     } catch (e) {
       if (e instanceof ContractError) throw e;
       tried.push(`${name} ${(e as Error).name === 'TimeoutError' ? 'timed out' : 'unreachable'}`);
@@ -121,11 +141,16 @@ let selector: WalletSelector | null = null;
 let functionCall: ((method: string, args: object, gas: bigint, deposit: bigint) => unknown) | null = null;
 const signedIn = () => selector?.store.getState().accounts.find((a) => a.active)?.accountId ?? null;
 
+/** Every owner call attaches 1 yoctoNEAR: the contract asks for it, so a web wallet's sign-in key alone can't change anything. */
 async function send(method: string, args: object, deposit = '1') {
-  if (!selector || !functionCall) return;
-  const wallet = await selector.wallet();
-  await wallet.signAndSendTransaction({ receiverId: contract, actions: [functionCall(method, args, BigInt(GAS), BigInt(deposit))] as never });
+  await sendTo(contract, method, args, BigInt(deposit), location.href);
   await refresh();
+}
+async function sendTo(receiver: string, method: string, args: object, deposit: bigint, back: string) {
+  if (!selector || !functionCall) throw new Error('Connect a wallet first.');
+  const wallet = await selector.wallet();
+  // MyNearWallet leaves the page to sign and comes back to `back`; Meteor signs in a popup and returns here.
+  await wallet.signAndSendTransaction({ receiverId: receiver, actions: [functionCall(method, args, BigInt(GAS), deposit)] as never, callbackUrl: new URL(back, location.href).href } as never);
 }
 
 const WORDS: Record<string, [string, string]> = {
@@ -138,17 +163,17 @@ function header(owner?: string) {
   const mine = me && owner === me;
   if (!selector) return;
   $('who').innerHTML = me
-    ? `<span>${esc(me)}${mine ? ' · owner' : ' · not the owner'}</span><button class="ghost" id="out">Disconnect</button>`
-    : `<span>Owner? Connect</span><button class="ghost" id="connect-my">MyNearWallet</button><button class="ghost" id="connect-meteor">Meteor</button>`;
+    ? `<span>${esc(me)}${setupMode ? '' : mine ? ' · owner' : ' · not the owner'}</span><button class="ghost" id="out">Disconnect</button>`
+    : `<span>${setupMode ? 'Connect' : 'Owner? Connect'}</span><button class="ghost" id="connect-my">MyNearWallet</button><button class="ghost" id="connect-meteor">Meteor</button>`;
   $('who').querySelector('#out')?.addEventListener('click', async () => {
     await (await selector!.wallet()).signOut();
-    void refresh();
+    void redraw();
   });
   for (const [id, wallet] of [['connect-my', 'my-near-wallet'], ['connect-meteor', 'meteor-wallet']] as const) {
     $('who').querySelector(`#${id}`)?.addEventListener('click', async () => {
       const w = (await selector!.wallet(wallet)) as unknown as { signIn: (o: { contractId: string; methodNames: string[] }) => Promise<unknown> };
-      await w.signIn({ contractId: contract, methodNames: [] });
-      void refresh();
+      await w.signIn({ contractId: setupMode ? FACTORY : contract, methodNames: [] });
+      void redraw();
     });
   }
 }
@@ -160,7 +185,7 @@ const TERM_TEXT: Record<string, [string, string]> = {
 };
 const term = (id: string, label: string) => `<button type="button" class="term" popovertarget="t-${id}">${esc(label)}</button>`;
 const TERMS = Object.entries(TERM_TEXT).map(([id, [name, text]]) => `<div id="t-${id}" popover class="term-pop"><b>${esc(name)}</b><p>${esc(text)}</p></div>`).join('');
-const PITCH = `<section class="pitch"><span class="eyebrow"><i></i>Live on NEAR ${network}</span><h1>Give an AI agent a budget, <em>not a key.</em></h1><p class="pitch-say">The agent holds no key that can move money. A NEAR contract owns its wallet on Base through ${term('chainsig', 'Chain Signatures')}, and signs only within the owner’s rules. A stolen agent key is worth one day’s budget.</p><div class="jump"><a class="btn go" href="#gate">Try to break it</a><a class="btn ghost" href="#dare">Steal with the real key</a></div></section>`;
+const PITCH = `<section class="pitch"><span class="eyebrow"><i></i>Live on NEAR ${network}</span><h1>Give an AI agent a budget, <em>not a key.</em></h1><p class="pitch-say">The agent holds no key that can move money. A NEAR contract owns its wallet on Base through ${term('chainsig', 'Chain Signatures')}, and signs only within the owner’s rules. A stolen agent key is worth one day’s budget.</p><div class="jump"><a class="btn go" href="#gate">Try to break it</a>${PROOF.length ? '<a class="btn ghost" href="#dare">Steal with the real key</a>' : ''}</div><p class="setup-link"><a href="?new&network=${network}">Set up an allowance for your own agent →</a></p></section>`;
 const QUESTIONS = `<section class="questions" aria-label="Questions">
   <details><summary>What if the agent’s key is stolen?</summary><p>The thief can only do what the agent can: ask. At most that’s one day’s budget, paid only to sellers the owner chose. Anything else is refused or waits for the owner.</p></details>
   <details><summary>And if the owner’s key is stolen?</summary><p>Then it isn’t safe: the owner can change the rules and pay anyone directly. Keep the owner key in a hardware wallet, never on the machine the agent runs on.</p></details>
@@ -248,12 +273,62 @@ let lastOk = '';
 let lastGate = '';
 let lastToday = '';
 let lastAsk = '';
+let lastTools = '';
+
+/** The owner's rule changes. Each is one wallet confirmation; the contract checks it's the owner and 1 yocto is attached. */
+function bindTools(p: Policy) {
+  const tell = (t: string, bad = false) => {
+    const el = document.getElementById('tools-say');
+    if (el) el.innerHTML = `<span class="${bad ? 'bad-text' : 'quiet'}">${esc(t)}</span>`;
+  };
+  const run = (method: string, args: object) => send(method, args).then(() => tell('Done.'), (e) => tell(message(e), true));
+  document.getElementById('limits')?.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const f = ev.target as HTMLFormElement;
+    const per = Math.round(Number((f.elements.namedItem('per') as HTMLInputElement).value) * 1e6);
+    const day = Math.round(Number((f.elements.namedItem('day') as HTMLInputElement).value) * 1e6);
+    if (!(per > 0) || !(day >= per)) return tell('Per payment must be above $0 and no more than per day.', true);
+    if (p.approval_max && day > Number(p.approval_max)) return tell(`Per day can’t pass what the owner may approve (${usd(p.approval_max)}).`, true);
+    void run('set_limits', { per_payment_max: String(per), daily_limit: String(day) });
+  });
+  document.getElementById('add-seller')?.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const v = ((ev.target as HTMLFormElement).elements.namedItem('payee') as HTMLInputElement).value.trim().toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(v)) return tell('A Base address is 0x and 40 hex digits.', true);
+    void run('add_payee', { payee: v });
+  });
+  document.getElementById('pause')?.addEventListener('click', () => void run('set_paused', { paused: !p.paused }));
+}
+
+/** The connected account's allowances: the factory's list, plus `allowance.<account>` from the terminal setup. */
+let mineFor = '';
+async function drawMine() {
+  const el = document.getElementById('mine');
+  const me = signedIn();
+  if (!el || mineFor === (me ?? '')) return;
+  mineFor = me ?? '';
+  if (!me) return void (el.innerHTML = '');
+  const [made, legacy] = await Promise.all([viewOf<string[]>(FACTORY, 'get_allowances', { owner: me }).catch(() => [] as string[]), nearBalance(`allowance.${me}`).catch(() => null)]);
+  const list = [...(legacy === null ? [] : [`allowance.${me}`]), ...made];
+  el.innerHTML = `<section class="sheet mine"><h2>Your allowances</h2>${list.length ? list.map((a) => `<div class="line"><a href="?contract=${encodeURIComponent(a)}&network=${network}">${esc(a)}</a>${a === contract ? '<span class="faint small">open now</span>' : ''}</div>`).join('') : `<p class="quiet small">None on ${network} yet.</p>`}<a class="btn ghost mine-new" href="?new&network=${network}">Set up a new one</a></section>`;
+}
+
+function redraw() {
+  if (setupMode) {
+    header();
+    return drawSetup({ network, factory: FACTORY, esc, viewOf, signedIn, sendTo });
+  }
+  mineFor = '#';
+  lastOk = '';
+  return refresh();
+}
 let triedOnLoad = false;
 async function refresh(): Promise<boolean> {
   try {
     const policy = await view<Policy>('get_policy');
     const upgraded = policy.approval_max !== undefined;
-    const [held, history, usdc] = await Promise.all([upgraded ? view<Held[]>('list_held') : Promise.resolve([]), upgraded ? view<Entry[]>('get_history') : Promise.resolve([]), baseUsdc(policy.from)]);
+    const revokedNow = policy.agent === contract;
+    const [held, history, usdc, agentNear] = await Promise.all([upgraded ? view<Held[]>('list_held') : Promise.resolve([]), upgraded ? view<Entry[]>('get_history') : Promise.resolve([]), baseUsdc(policy.from), revokedNow ? Promise.resolve(null) : nearBalance(policy.agent).catch(() => null)]);
     header(policy.owner);
     const owner = signedIn() === policy.owner;
     const now = Date.now() / 1000;
@@ -326,11 +401,17 @@ async function refresh(): Promise<boolean> {
           ${PROOF.length ? `<section class="sheet proof"><h2>Real receipts</h2>${PROOF.map(([what, url]) => `<div class="line"><span>${esc(what)}</span><a href="${esc(url)}">view</a></div>`).join('')}</section>` : ''}
         </div>
         <div class="stack">
+          <section class="sheet fund">
+            <h2>Add funds</h2>
+            <p class="quiet small">Send USDC <b>on Base</b> to the address only this contract can sign for.</p>
+            <div class="dare-key"><code title="${esc(policy.from)}">${esc(policy.from)}</code><button type="button" class="ghost" data-copy="${esc(policy.from)}">Copy</button></div>
+            ${agentNear === null ? '' : `<p class="faint small">The agent pays NEAR gas to ask: <b class="${agentNear < 0.35 ? 'bad-text' : ''}">${agentNear.toFixed(2)} NEAR</b> on <a href="${EXPLORER}/address/${esc(policy.agent)}">${esc(short(policy.agent, 28))}</a>.${agentNear < 0.35 ? ' Send it some NEAR before it runs out.' : ''}</p>`}
+          </section>
           <section class="sheet">
             <h2>Sellers it may pay</h2>
             ${policy.payees.map((p) => {
               const wait = policy.waiting_payees?.find(([w]) => w === p);
-              return `<div class="line"><span>${baseLink(p)}</span>${wait ? `<span class="soon">payable ${esc(until(wait[1]))}</span>` : '<span class="ready">Payable</span>'}</div>`;
+              return `<div class="line"><span>${baseLink(p)}</span><span class="line-end">${wait ? `<span class="soon">payable ${esc(until(wait[1]))}</span>` : '<span class="ready">Payable</span>'}${owner && !revoked ? `<button class="ghost tiny" type="button" data-remove="${esc(p)}" aria-label="Remove ${esc(seller(p))}">Remove</button>` : ''}</span></div>`;
             }).join('')}
             ${upgraded ? `<p class="faint" style="font-size:13px;margin-top:10px">A new seller waits ${Math.round(Number(policy.payee_delay_s) / 3600)} hours, so a seller you didn’t add can’t be paid before you have time to notice.</p>` : ''}
           </section>
@@ -343,7 +424,17 @@ async function refresh(): Promise<boolean> {
         </div>
       </div>`;
     if (!$('rest')) {
-      $('app').innerHTML = `<div class="layout"><aside class="side">${PITCH}<div id="today"></div>${QUESTIONS}</aside><div class="flow"><div id="notice" role="alert"></div><div id="asking"></div><div id="gate"></div>${DARE_HTML}<div id="rest" class="stack-rest"></div></div></div>${TERMS}`;
+      $('app').innerHTML = `<div class="layout"><aside class="side">${PITCH}<div id="today"></div><div id="mine"></div>${QUESTIONS}</aside><div class="flow"><div id="notice" role="alert"></div><div id="asking"></div><div id="gate"></div>${upgraded && PROOF.length ? DARE_HTML : ''}<div id="rest" class="stack-rest"></div><div id="owner-tools"></div></div></div>${TERMS}`;
+      // One listener for the buttons inside parts that redraw: copy, and the owner's per-seller remove.
+      $('app').addEventListener('click', (ev) => {
+        const b = (ev.target as HTMLElement).closest<HTMLButtonElement>('button[data-copy], button[data-remove]');
+        if (!b) return;
+        if (b.dataset.copy) {
+          void navigator.clipboard?.writeText(b.dataset.copy);
+          b.textContent = 'Copied';
+          setTimeout(() => (b.textContent = 'Copy'), 1500);
+        } else if (b.dataset.remove) void send('remove_payee', { payee: b.dataset.remove }).catch(show);
+      });
       $('app').querySelectorAll<HTMLButtonElement>('button[data-steal]').forEach((b) => b.addEventListener('click', () => void steal(b.dataset.steal!, b)));
       $('dare-copy')?.addEventListener('click', () => void navigator.clipboard?.writeText(DARE.key));
     }
@@ -367,6 +458,19 @@ async function refresh(): Promise<boolean> {
       triedOnLoad = true;
       void tryPayment(policy, 'attack').catch(() => undefined);
     }
+    const toolsHtml = owner && upgraded && !revoked ? `<section class="sheet tools" aria-label="Change the rules">
+        <h2>Change the rules</h2>
+        <form id="limits" class="row-form"><label class="field"><span>Most per payment ($)</span><input name="per" inputmode="decimal" value="${cap / 1e6}"></label><label class="field"><span>Most per day ($)</span><input name="day" inputmode="decimal" value="${daily / 1e6}"></label><button class="ghost">Save limits</button></form>
+        <form id="add-seller" class="row-form"><label class="field grow"><span>Add a seller (Base address)</span><input name="payee" placeholder="0x…" spellcheck="false" autocomplete="off"></label><button class="ghost">Add</button></form>
+        <div class="row-form"><p class="faint small grow">A new seller can be paid after ${Math.round(Number(policy.payee_delay_s) / 3600)} h. Each change opens your wallet to confirm.</p><button class="ghost" type="button" id="pause">${policy.paused ? 'Resume the agent' : 'Pause the agent'}</button></div>
+        <p id="tools-say" class="small" role="status"></p>
+      </section>` : '';
+    if (toolsHtml !== lastTools) {
+      $('owner-tools').innerHTML = toolsHtml;
+      lastTools = toolsHtml;
+      bindTools(policy);
+    }
+    void drawMine();
     if (html !== lastOk) {
       $('rest').innerHTML = html;
       lastOk = html;
@@ -398,6 +502,11 @@ function show(e: unknown) {
   if ($('rest')) {
     $('notice').innerHTML = `<div class="note-bar"><span>${esc(text)}</span><button class="ghost" type="button" id="notice-x" aria-label="Dismiss">Dismiss</button></div>`;
     $('notice-x').addEventListener('click', () => ($('notice').innerHTML = ''));
+    return;
+  }
+  // Just back from the wallet after setting one up: the factory takes ~15 s, so the contract may not be there yet.
+  if (q.has('made') && e instanceof ContractError) {
+    $('app').innerHTML = `<p class="loading"><span class="saku-wait" role="status">${esc(contract)} is being set up. This takes about 15 seconds…</span></p>`;
     return;
   }
   $('app').innerHTML = `<div class="note-bar fail"><span>Couldn’t read <code>${esc(contract)}</code> on ${network}. ${esc(text)}.</span><button class="ghost" type="button" id="again">Try again</button></div>`;
@@ -447,23 +556,27 @@ function drawLink() {
 }
 
 void (async () => {
-  $('where').innerHTML = `<b class="${network === 'testnet' ? 'test' : ''}">${network}</b>${esc(contract)}`;
+  $('where').innerHTML = `<b class="${network === 'testnet' ? 'test' : ''}">${network}</b>${esc(setupMode ? 'new allowance' : contract)}`;
   const form = document.querySelector<HTMLFormElement>('form.pick')!;
   (form.elements.namedItem('contract') as HTMLInputElement).value = contract;
   (form.elements.namedItem('network') as HTMLSelectElement).value = network;
-  $('link').addEventListener('click', () => void poll());
+  $('link').addEventListener('click', () => void (setupMode ? redraw() : poll()));
   setInterval(drawLink, 1000);
-  await poll();
+  if (setupMode) await drawSetup({ network, factory: FACTORY, esc, viewOf, signedIn, sendTo });
+  else await poll();
   try {
     const [core, myNear, meteor] = await Promise.all([import('@near-wallet-selector/core'), import('@near-wallet-selector/my-near-wallet'), import('@near-wallet-selector/meteor-wallet')]);
     functionCall = core.actionCreators.functionCall as never;
     selector = await core.setupWalletSelector({ network, modules: [myNear.setupMyNearWallet(), meteor.setupMeteorWallet()] });
+    let seen = signedIn();
     selector.store.observable.subscribe(() => {
-      lastOk = '';
-      void refresh();
+      // Redraw only when the account changes: the store also ticks on things the page doesn't show.
+      if (signedIn() === seen) return;
+      seen = signedIn();
+      void redraw();
     });
-    lastOk = '';
-    void refresh();
+    header();
+    void redraw();
   } catch (e) {
     console.error('wallets_unavailable', e);
     $('who').textContent = 'Read-only: wallets could not load.';

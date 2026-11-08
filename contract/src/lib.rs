@@ -359,16 +359,19 @@ impl Allowance {
 
     // ── owner ────────────────────────────────────────────────────────────────
 
+    #[payable]
     pub fn set_paused(&mut self, paused: bool) {
         self.only_owner();
         self.paused = paused;
         self.record(if paused { "paused" } else { "resumed" }, "", 0, "");
     }
     /// Rotate the agent account — e.g. after its key may have leaked.
+    #[payable]
     pub fn set_agent(&mut self, agent: AccountId) {
         self.only_owner();
         self.agent = agent;
     }
+    #[payable]
     pub fn set_limits(&mut self, per_payment_max: U128, daily_limit: U128) {
         self.only_owner();
         require!(per_payment_max.0 > 0 && per_payment_max.0 <= daily_limit.0, "per_payment_max must be 1..=daily_limit");
@@ -377,6 +380,7 @@ impl Allowance {
         self.daily_limit = daily_limit.0;
         self.record("limits_changed", "", 0, "");
     }
+    #[payable]
     pub fn add_payee(&mut self, payee: String) {
         self.only_owner();
         let key = hex20(&payee).1;
@@ -386,6 +390,7 @@ impl Allowance {
             self.record("payee_added", &key, 0, "");
         }
     }
+    #[payable]
     pub fn remove_payee(&mut self, payee: String) {
         self.only_owner();
         let key = hex20(&payee).1;
@@ -451,8 +456,12 @@ impl Allowance {
 }
 
 impl Allowance {
+    /// Every owner call needs 1 yoctoNEAR attached. A web wallet's sign-in key is a function-call key, which can't
+    /// attach a deposit, so a stolen browser session can't change the rules: the owner's wallet has to confirm each
+    /// change (2026-11-08, before the site could edit rules).
     fn only_owner(&self) {
         require!(env::predecessor_account_id() == self.owner, "only the owner");
+        require!(env::attached_deposit() >= NearToken::from_yoctonear(1), "attach at least 1 yoctoNEAR");
     }
 
     /// Every rule of the policy, in one place for `pay` and `check`. Reads the day's spend
