@@ -160,7 +160,7 @@ Try it — do X, see Y:
    ```bash
    npm run contract:test
    ```
-   See: `24 passed` — including the contract's digest matching viem's byte for byte
+   See: `35 passed` — including the contract's digest matching viem's byte for byte
    (USDC's real Base domain separator `0x02fa7265…834f`), the payee list, both caps,
    the day roll-over, the refund on a failed signature, pausing, the free `check`
    view answering exactly like `pay`, payments that wait for the owner, the wait on
@@ -179,7 +179,7 @@ Try it — do X, see Y:
    **Check it yourself:** every allowance the factory makes runs exactly
    `contract/factory/res/agent_allowance.wasm` and has no access key at all.
    ```bash
-   curl -s https://rpc.testnet.near.org -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_account","finality":"final","account_id":"checked.saku-factory.testnet"}}' | grep -o '"code_hash":"[^"]*"'
+   curl -s https://test.rpc.fastnear.com -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"query","params":{"request_type":"view_account","finality":"final","account_id":"checked.saku-factory.testnet"}}' | grep -o '"code_hash":"[^"]*"'
    ```
    See: `"code_hash":"9guzuiHMV1FMDsVPs1nf1D5qFKPDytXwvojEttncawjA"`, which is base58(sha256) of that file
    (`python3 -c "import hashlib;print(hashlib.sha256(open('contract/factory/res/agent_allowance.wasm','rb').read()).hexdigest())"`
