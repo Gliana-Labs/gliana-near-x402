@@ -139,7 +139,12 @@ async function baseUsdc(from: string): Promise<number | null> {
 
 let selector: WalletSelector | null = null;
 let functionCall: ((method: string, args: object, gas: bigint, deposit: bigint) => unknown) | null = null;
-const signedIn = () => selector?.store.getState().accounts.find((a) => a.active)?.accountId ?? null;
+/**
+ * Dev server only (Vite drops it from the build): ?as=<account> shows the page as that account signed in, to check the
+ * connected views without a wallet. Nothing can be sent that way: sending still needs a real wallet.
+ */
+const PREVIEW_AS = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV ? q.get('as') : null;
+const signedIn = () => PREVIEW_AS ?? selector?.store.getState().accounts.find((a) => a.active)?.accountId ?? null;
 
 /** Every owner call attaches 1 yoctoNEAR: the contract asks for it, so a web wallet's sign-in key alone can't change anything. */
 async function send(method: string, args: object, deposit = '1') {
@@ -186,7 +191,25 @@ const TERM_TEXT: Record<string, [string, string]> = {
 };
 const term = (id: string, label: string) => `<button type="button" class="term" popovertarget="t-${id}">${esc(label)}</button>`;
 const TERMS = Object.entries(TERM_TEXT).map(([id, [name, text]]) => `<div id="t-${id}" popover class="term-pop"><b>${esc(name)}</b><p>${esc(text)}</p></div>`).join('');
-const PITCH = `<section class="pitch"><span class="eyebrow"><i></i>Live on NEAR ${network}</span><h1>Give an AI agent a budget, <em>not a key.</em></h1><p class="pitch-say">The agent holds no key that can move money. A NEAR contract owns its wallet on Base through ${term('chainsig', 'Chain Signatures')}, and signs only within the owner’s rules. A stolen agent key is worth one day’s budget.</p>${PROOF.length ? '<p class="proof-line">On mainnet: paid <a href="https://basescan.org/tx/0x5f1bfc94c4d9206a44fcda36f8d2a2434189ddeeacec102e59b9634091464f81">Exa in USDC on Base</a>, held a payment over its limit until the owner said yes, and refused a $5 attack.</p>' : ''}<div class="jump"><a class="btn go" href="#gate">Try to break it</a>${PROOF.length ? '<a class="btn ghost" href="#dare">Steal with the real key</a>' : ''}</div><p class="setup-link"><a href="?new&network=${network}">Set up an allowance for your own agent →</a></p></section>`;
+/**
+ * Where "set up your own" goes. The factory is deployed on testnet only (mainnet is left out on purpose: unaudited), so
+ * on mainnet the link used to open a page that only said setup isn't open there (2026-11-17).
+ */
+const SETUP_HREF = '?new&network=testnet';
+/**
+ * Set when a wallet connects on this page, so what connecting changed is scrolled into view once it's drawn. It used to
+ * appear below the pitch and the questions, out of sight on a laptop or a phone (2026-11-17).
+ */
+let justConnected = false;
+function showAfterConnect(id: string) {
+  if (!justConnected) return;
+  const el = document.getElementById(id);
+  if (!el || !el.firstElementChild) return;
+  justConnected = false;
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  el.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'start' });
+}
+const PITCH = `<section class="pitch"><span class="eyebrow"><i></i>Live on NEAR ${network}</span><h1>Give an AI agent a budget, <em>not a key.</em></h1><p class="pitch-say">The agent holds no key that can move money. A NEAR contract owns its wallet on Base through ${term('chainsig', 'Chain Signatures')}, and signs only within the owner’s rules. A stolen agent key is worth one day’s budget.</p>${PROOF.length ? '<p class="proof-line">On mainnet: paid <a href="https://basescan.org/tx/0x5f1bfc94c4d9206a44fcda36f8d2a2434189ddeeacec102e59b9634091464f81">Exa in USDC on Base</a>, held a payment over its limit until the owner said yes, and refused a $5 attack.</p>' : ''}<div class="jump"><a class="btn go" href="#gate">Try to break it</a>${PROOF.length ? '<a class="btn ghost" href="#dare">Steal with the real key</a>' : ''}</div><p class="setup-link"><a href="${SETUP_HREF}">${network === 'mainnet' ? 'Set up your own, free on testnet →' : 'Set up an allowance for your own agent →'}</a></p></section>`;
 const QUESTIONS = `<section class="questions" aria-label="Questions">
   <details><summary>What if the agent’s key is stolen?</summary><p>The thief can only do what the agent can: ask. At most that’s one day’s budget, paid only to sellers the owner chose. Anything else is refused or waits for the owner.</p></details>
   <details><summary>And if the owner’s key is stolen?</summary><p>Then it isn’t safe: the owner can change the rules and pay anyone directly. Keep the owner key in a hardware wallet, never on the machine the agent runs on.</p></details>
@@ -320,7 +343,12 @@ async function drawMine() {
   if (!me) return void (el.innerHTML = '');
   const [made, legacy] = await Promise.all([viewOf<string[]>(FACTORY, 'get_allowances', { owner: me }).catch(() => [] as string[]), nearBalance(`allowance.${me}`).catch(() => null)]);
   const list = [...(legacy === null ? [] : [`allowance.${me}`]), ...made];
-  el.innerHTML = `<section class="sheet mine"><h2>Your allowances</h2>${list.length ? list.map((a) => `<div class="line"><a href="?contract=${encodeURIComponent(a)}&network=${network}">${esc(a)}</a>${a === contract ? '<span class="faint small">open now</span>' : ''}</div>`).join('') : `<p class="quiet small">None on ${network} yet.</p>`}<a class="btn ghost mine-new" href="?new&network=${network}">Set up a new one</a></section>`;
+  el.innerHTML = `<section class="sheet mine" aria-label="Your allowances"><div class="mine-head"><h2>Your allowances</h2><span class="faint small">${esc(me)}</span></div>${
+    list.length
+      ? list.map((a) => `<div class="line"><a href="?contract=${encodeURIComponent(a)}&network=${network}">${esc(a)}</a>${a === contract ? '<span class="here">Open</span>' : ''}</div>`).join('')
+      : `<p class="quiet small">None on ${network} yet.</p>`
+  }<div class="mine-actions"><a class="btn ghost mine-new" href="${SETUP_HREF}">${network === 'mainnet' ? 'Set up a new one on testnet' : 'Set up a new one'}</a></div></section>`;
+  showAfterConnect('mine');
 }
 
 function redraw() {
@@ -436,7 +464,7 @@ async function refresh(): Promise<boolean> {
         </div>
       </div>`;
     if (!$('rest')) {
-      $('app').innerHTML = `<div class="layout"><aside class="side">${PITCH}<div id="today"></div><div id="mine"></div>${QUESTIONS}</aside><div class="flow"><div id="notice" role="alert"></div><div id="asking"></div><div id="gate"></div>${upgraded && PROOF.length ? DARE_HTML : ''}<div id="rest" class="stack-rest"></div><div id="owner-tools"></div></div></div>${TERMS}`;
+      $('app').innerHTML = `<div class="layout"><aside class="side">${PITCH}<div id="today"></div>${QUESTIONS}</aside><div class="flow"><div id="notice" role="alert"></div><div id="mine"></div><div id="asking"></div><div id="owner-tools"></div><div id="gate"></div>${upgraded && PROOF.length ? DARE_HTML : ''}<div id="rest" class="stack-rest"></div></div></div>${TERMS}`;
       // One listener for the buttons inside parts that redraw: copy, and the owner's per-seller remove.
       $('app').addEventListener('click', (ev) => {
         const b = (ev.target as HTMLElement).closest<HTMLButtonElement>('button[data-copy], button[data-remove], button[data-trust]');
@@ -474,9 +502,9 @@ async function refresh(): Promise<boolean> {
     const toolsHtml = owner && upgraded && !revoked ? `<section class="sheet tools" aria-label="Change the rules">
         <h2>Change the rules</h2>
         <form id="limits" class="row-form"><label class="field"><span>Most per payment ($)</span><input name="per" inputmode="decimal" value="${cap / 1e6}"></label><label class="field"><span>Most per day ($)</span><input name="day" inputmode="decimal" value="${daily / 1e6}"></label><button class="ghost">Save limits</button></form>
-        ${policy.max_per_hour !== undefined ? `<form id="extra" class="row-form"><label class="field"><span>Most payments an hour (0 = no limit)</span><input name="hour" inputmode="numeric" value="${policy.max_per_hour}"></label><label class="field"><span>Most per 30 days ($, 0 = no limit)</span><input name="month" inputmode="decimal" value="${Number(policy.monthly_limit ?? 0) / 1e6}"></label><button class="ghost">Save</button></form>` : ''}
+        ${policy.max_per_hour !== undefined ? `<form id="extra" class="row-form"><label class="field"><span>Most payments an hour</span><input name="hour" inputmode="numeric" value="${policy.max_per_hour}"></label><label class="field"><span>Most per 30 days ($)</span><input name="month" inputmode="decimal" value="${Number(policy.monthly_limit ?? 0) / 1e6}"></label><button class="ghost">Save</button></form>` : ''}
         <form id="add-seller" class="row-form"><label class="field grow"><span>Add a seller (Base address)</span><input name="payee" placeholder="0x…" spellcheck="false" autocomplete="off"></label><button class="ghost">Add</button></form>
-        <div class="row-form"><p class="faint small grow">Payments to a new seller wait for your OK for ${Math.round(Number(policy.payee_delay_s) / 3600)} h. Each change opens your wallet to confirm.</p><button class="ghost" type="button" id="pause">${policy.paused ? 'Resume the agent' : 'Pause the agent'}</button></div>
+        <div class="row-form"><p class="faint small grow">Payments to a new seller wait for your OK for ${Math.round(Number(policy.payee_delay_s) / 3600)} h. 0 means no limit. Each change opens your wallet to confirm.</p><button class="ghost" type="button" id="pause">${policy.paused ? 'Resume the agent' : 'Pause the agent'}</button></div>
         <p id="tools-say" class="small" role="status"></p>
       </section>` : '';
     if (toolsHtml !== lastTools) {
@@ -586,8 +614,9 @@ void (async () => {
     selector.store.observable.subscribe(() => {
       // Redraw only when the account changes: the store also ticks on things the page doesn't show.
       if (signedIn() === seen) return;
+      justConnected = !seen && !!signedIn();
       seen = signedIn();
-      void redraw();
+      void Promise.resolve(redraw()).then(() => setupMode && showAfterConnect('app'));
     });
     header();
     void redraw();

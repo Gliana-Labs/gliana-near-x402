@@ -362,5 +362,19 @@ button.tiny { min-height: 26px; padding: 0 8px; font-size: 12px; font-weight: 50
 .row-form .grow { flex: 1 1 220px; }
 .tools h2 { margin-bottom: 0; }
 .mine .line a { font: 400 13px var(--money); overflow-wrap: anywhere; }
-.mine-new { margin-top: 12px; min-height: 34px; font-size: 13px; }
+.mine-new { min-height: 34px; font-size: 13px; }
+/* Your allowances (main.ts drawMine): the open one is marked beside its name, not stranded at the far edge. */
+.mine-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.mine-head h2 { margin-bottom: 0; }
+.mine-head .small { font-family: var(--money); overflow-wrap: anywhere; text-align: right; }
+.mine .line { justify-content: flex-start; align-items: center; }
+.mine-head + .line { border-top: 0; padding-top: 0; }
+.mine .here { font: 600 10px var(--money); letter-spacing: 0.08em; text-transform: uppercase; color: var(--signed); background: var(--signed-dim); border-radius: var(--r-s); padding: 3px 7px; }
+.mine-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+/* Change the rules: figures are short, so their fields are too; only the seller address takes the full row. */
+.tools .row-form .field:not(.grow) { flex: 0 1 200px; }
+#owner-tools { scroll-margin-top: 72px; }
 @media (max-width: 860px) { .two { grid-template-columns: minmax(0, 1fr); } .setup-page { padding-top: 16px; } }
+
+/* Scrolled to after a wallet connects (main.ts showAfterConnect): clear of the sticky top bar. */
+#mine, #app { scroll-margin-top: 72px; }
